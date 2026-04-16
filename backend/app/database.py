@@ -10,13 +10,16 @@ db = SQLAlchemy()
 
 def _normalize_database_url(raw_url: str) -> str:
     """Normalise les URI DB pour SQLAlchemy (Supabase/PostgreSQL inclus)."""
-    db_url = (raw_url or "").strip().strip('"').strip("'")
-    if not db_url:
+    if not raw_url:
         return ""
-
+        
+    db_url = raw_url.strip().strip('"').strip("'")
+    
+    # Correction pour SQLAlchemy qui n'accepte plus 'postgres://' seul
     if db_url.startswith("postgres://"):
         db_url = db_url.replace("postgres://", "postgresql://", 1)
 
+    # Ajout automatique de sslmode pour Supabase si manquant
     if "supabase.com" in db_url and "sslmode=" not in db_url:
         sep = "&" if "?" in db_url else "?"
         db_url = f"{db_url}{sep}sslmode=require"
@@ -26,6 +29,14 @@ def _normalize_database_url(raw_url: str) -> str:
 def init_db(app):
     """Initialise l'application avec SQLAlchemy"""
     db_url = _normalize_database_url(os.getenv("DATABASE_URL"))
+
+    # Debug: afficher l'URL masquée (protection mot de passe)
+    masked_url = db_url
+    if "@" in db_url:
+        protocol_part, auth_part = db_url.split("://", 1)
+        cred_part, host_part = auth_part.split("@", 1)
+        masked_url = f"{protocol_part}://***:***@{host_part}"
+    print(f"DEBUG: SQLAlchemy URI being used: {masked_url}")
 
     use_sqlite = os.getenv("USE_SQLITE", "false").lower() == "true"
     allow_sqlite_fallback = os.getenv("ALLOW_SQLITE_FALLBACK", "false").lower() == "true"
