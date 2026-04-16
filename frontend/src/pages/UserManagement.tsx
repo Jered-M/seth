@@ -13,7 +13,9 @@ import {
     ToggleLeft,
     ToggleRight,
     MapPin,
-    Monitor
+    Monitor,
+    Plus,
+    Loader2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import api from '../services/api';

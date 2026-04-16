@@ -37,6 +37,8 @@ interface SecurityAlertProps {
   autoHideDuration?: number;
 }
 
+const Lock = Shield; // Fallback
+
 const alertConfig = {
   UNAUTHORIZED_EXIT: {
     icon: MapPin,
@@ -81,8 +83,6 @@ const alertConfig = {
     badgeColor: 'status-info'
   }
 };
-
-const Lock = Shield; // Fallback
 
 /**
  * SingleAlert - Composant tactique pour une seule alerte

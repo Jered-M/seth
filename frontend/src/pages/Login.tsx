@@ -22,14 +22,21 @@ const getBrowserLocation = async (): Promise<{ lat: number; lng: number; accurac
     });
 };
 
-export const Login = ({ onLogin }) => {
+interface User {
+    id: string;
+    username: string;
+    email: string;
+    role: string;
+}
+
+export const Login = ({ onLogin }: { onLogin: (user: User) => void }) => {
     const [email, setEmail] = useState('')
     const [password, setPassword] = useState('')
     const [mfaPending, setMfaPending] = useState<any>(null)
     const navigate = useNavigate()
     const { login, loading, error } = useAuth()
 
-    const handleSubmit = async (e) => {
+    const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault()
         try {
             const response = await login({ email, password })

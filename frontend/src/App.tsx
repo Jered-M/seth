@@ -15,20 +15,28 @@ import DepartmentEquipmentMap from './pages/DepartmentEquipmentMap'
 import { useState, useEffect } from 'react'
 import { authService } from './services/authService'
 
+interface User {
+    id: string;
+    username: string;
+    email: string;
+    role: string;
+    department?: string;
+}
+
 function App() {
-    const [user, setUser] = useState(null)
+    const [user, setUser] = useState<User | null>(null)
     const [loading, setLoading] = useState(true)
 
     useEffect(() => {
         // Vérifier si un utilisateur est déjà connecté
         const currentUser = authService.getCurrentUser()
         if (currentUser) {
-            setUser(currentUser)
+            setUser(currentUser as User)
         }
         setLoading(false)
     }, [])
 
-    const handleLogin = (userData) => {
+    const handleLogin = (userData: User) => {
         setUser(userData)
     }
 
@@ -37,13 +45,14 @@ function App() {
         setUser(null)
     }
 
-    const normalizedRole = user?.role === 'ADMIN_GENERAL'
+    const role = (user as User | null)?.role;
+    const normalizedRole = role === 'ADMIN_GENERAL'
         ? 'SUPER_ADMIN'
-        : user?.role === 'ADMIN_DEPT'
+        : role === 'ADMIN_DEPT'
             ? 'DEPT_ADMIN'
-            : user?.role === 'SECURITY_AGENT'
+            : role === 'SECURITY_AGENT'
                 ? 'GARDIEN'
-                : user?.role
+                : role
 
     if (loading) {
         return (
