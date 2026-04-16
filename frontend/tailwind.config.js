@@ -1,0 +1,82 @@
+/** @type {import('tailwindcss').Config} */
+export default {
+  content: [
+    "./index.html",
+    "./src/**/*.{js,ts,jsx,tsx}",
+  ],
+  theme: {
+    extend: {
+      colors: {
+        "on-error": "#690005",
+        "on-background": "#dae2fd",
+        "surface": "#0b1326",
+        "on-tertiary": "#472a00",
+        "outline-variant": "#3f4850",
+        "surface-bright": "#31394d",
+        "tertiary-fixed": "#ffddb8",
+        "tertiary-container": "#ca8100",
+        "inverse-on-surface": "#283044",
+        "secondary-fixed": "#6ffbbe",
+        "inverse-surface": "#dae2fd",
+        "tertiary-fixed-dim": "#ffb95f",
+        "primary-container": "#3198dc",
+        "secondary": "#4edea3",
+        "on-secondary-fixed-variant": "#005236",
+        "secondary-container": "#00a572",
+        "on-error-container": "#ffdad6",
+        "surface-container": "#171f33",
+        "secondary-fixed-dim": "#4edea3",
+        "on-primary": "#003351",
+        "background": "#0b1326",
+        "error": "#ffb4ab",
+        "outline": "#89929b",
+        "primary-fixed": "#cce5ff",
+        "on-secondary-container": "#00311f",
+        "error-container": "#93000a",
+        "inverse-primary": "#006398",
+        "surface-container-highest": "#2d3449",
+        "on-secondary-fixed": "#002113",
+        "on-primary-container": "#002c47",
+        "on-tertiary-container": "#3e2400",
+        "on-surface": "#dae2fd",
+        "surface-dim": "#0b1326",
+        "surface-container-low": "#131b2e",
+        "surface-variant": "#2d3449",
+        "on-primary-fixed": "#001d31",
+        "on-tertiary-fixed": "#2a1700",
+        "on-surface-variant": "#bfc7d2",
+        "surface-tint": "#93ccff",
+        "on-secondary": "#003824",
+        "tertiary": "#ffb95f",
+        "surface-container-high": "#222a3d",
+        "on-primary-fixed-variant": "#004b73",
+        "primary": "#93ccff",
+        "surface-container-lowest": "#060e20",
+        "primary-fixed-dim": "#93ccff"
+      },
+      borderRadius: {
+        "DEFAULT": "0.125rem",
+        "lg": "0.25rem",
+        "xl": "0.5rem",
+        "full": "0.75rem"
+      },
+      fontFamily: {
+        headline: ["Inter", "sans-serif"],
+        body: ["Inter", "sans-serif"],
+        label: ["Inter", "sans-serif"]
+      },
+      animation: {
+        'blob': 'blob 7s infinite',
+      },
+      keyframes: {
+        blob: {
+          '0%': { transform: 'translate(0px, 0px) scale(1)' },
+          '33%': { transform: 'translate(30px, -50px) scale(1.1)' },
+          '66%': { transform: 'translate(-20px, 20px) scale(0.9)' },
+          '100%': { transform: 'translate(0px, 0px) scale(1)' },
+        },
+      },
+    },
+  },
+  plugins: [],
+}

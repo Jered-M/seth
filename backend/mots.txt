@@ -1,0 +1,3 @@
+superadmin@seth.com / SuperSecret123!
+admin-it@seth.com / AdminIT123!
+user@seth.com / User123!

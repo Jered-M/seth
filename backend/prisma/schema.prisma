@@ -1,0 +1,132 @@
+generator client {
+  provider             = "prisma-client-py"
+  recursive_type_depth = 5
+  interface            = "sync"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Role {
+  id          String @id @default(uuid())
+  name        String @unique
+  description String?
+  users       User[]
+
+  @@map("roles")
+}
+
+model Department {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  createdAt DateTime @default(now()) @map("created_at")
+  users     User[]
+  devices   Device[]
+
+  @@map("departments")
+}
+
+model User {
+  id                String      @id @default(uuid())
+  username          String      @unique
+  email             String      @unique
+  passwordHash      String      @map("password_hash")
+  roleId            String?     @map("role_id")
+  departmentId      String?     @map("department_id")
+  mfaEnabled        Boolean     @default(false) @map("mfa_enabled")
+  mfaSecret         String?     @map("mfa_secret")
+  isBlocked         Boolean     @default(false) @map("is_blocked")
+  failedAttempts    Int         @default(0) @map("failed_attempts")
+  lastFailedAttempt DateTime?   @map("last_failed_attempt")
+  createdAt         DateTime    @default(now()) @map("created_at")
+  role              Role?       @relation(fields: [roleId], references: [id])
+  department        Department? @relation(fields: [departmentId], references: [id])
+
+  @@map("users")
+}
+
+model Device {
+  id           String      @id @default(uuid())
+  name         String
+  serialNumber String      @unique @map("serial_number")
+  userId       String?     @map("user_id")
+  departmentId String?     @map("department_id")
+  status       String      @default("AVAILABLE")
+  lastKnownLat Float?      @map("last_known_lat")
+  lastKnownLng Float?      @map("last_known_lng")
+  user         User?       @relation(fields: [userId], references: [id])
+  department   Department? @relation(fields: [departmentId], references: [id])
+
+  @@map("devices")
+}
+
+model ExitRequest {
+  id               String    @id @default(uuid())
+  deviceId         String    @map("device_id")
+  userId           String    @map("user_id")
+  reason           String
+  status           String    @default("PENDING")
+  approvedBy       String?   @map("approved_by")
+  requiresDouble   Boolean   @default(false) @map("requires_double_validation")
+  secondApprovedBy String?   @map("second_approved_by")
+  requestDate      DateTime  @default(now()) @map("request_date")
+  expiryDate       DateTime? @map("expiry_date")
+
+  @@map("exit_requests")
+}
+
+model UserDevice {
+  id           String   @id @default(uuid())
+  userId       String   @map("user_id")
+  deviceIdHash String   @map("device_id_hash")
+  deviceName   String?  @map("device_name")
+  lastIp       String?  @map("last_ip")
+  isTrusted    Boolean  @default(false) @map("is_trusted")
+  lastLogin    DateTime @default(now()) @map("last_login")
+
+  @@map("user_trusted_devices")
+}
+
+model SecurityLog {
+  id           String    @id @default(uuid())
+  userId       String?   @map("user_id")
+  departmentId String?   @map("department_id")
+  action       String
+  details      String?
+  ipAddress    String?   @map("ip_address")
+  userAgent    String?   @map("user_agent")
+  status       String?
+  riskLevel    String    @default("LOW") @map("risk_level")
+  riskScore    Int       @default(0) @map("risk_score")
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  @@map("security_logs")
+}
+
+model SecurityAlert {
+  id           String   @id @default(uuid())
+  userId       String?  @map("user_id")
+  departmentId String?  @map("department_id")
+  type         String?
+  message      String?
+  isResolved   Boolean  @default(false) @map("is_resolved")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@map("security_alerts")
+}
+
+model AuthorizedZone {
+  id          String  @id @default(uuid())
+  name        String?
+  centerLat   Float?  @map("center_lat")
+  centerLng   Float?  @map("center_lng")
+  radiusMeters Float? @map("radius_meters")
+  polygonPoints String? @map("polygon_points")
+  departmentId String? @map("department_id")
+
+  @@map("authorized_zones")
+}
+
+

@@ -1,0 +1,45 @@
+services:
+  db:
+    image: postgres:15-alpine
+    restart: always
+    environment:
+      POSTGRES_USER: seth_user
+      POSTGRES_PASSWORD: seth_password
+      POSTGRES_DB: seth_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U seth_user -d seth_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    restart: always
+    environment:
+      DATABASE_URL: postgresql://seth_user:seth_password@db:5432/seth_db
+      USE_SQLITE: "false"
+      ENABLE_SCHEDULER: "true"
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-prod-jwt-secret}
+      SECRET_KEY: ${SECRET_KEY:-prod-secret-key}
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "5000:5000"
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    restart: always
+    depends_on:
+      - backend
+    ports:
+      - "80:80"
+
+volumes:
+  postgres_data:

@@ -1,0 +1,16 @@
+flask
+flask-cors
+flask-jwt-extended
+flask-sqlalchemy
+psycopg2-binary
+strawberry-graphql[flask]
+python-dotenv
+bcrypt
+PyJWT
+pyotp
+qrcode[pil]
+requests
+axios
+APScheduler
+pytest
+gunicorn

@@ -1,0 +1,297 @@
+@startuml Class Diagram
+
+class Role {
+    +String id
+    +String name
+    +String description
+}
+
+class Department {
+    +String id
+    +String name
+    +DateTime created_at
+}
+
+class User {
+    +String id
+    +String username
+    +String email
+    +String password_hash
+    +Boolean mfa_enabled
+    +String mfa_secret
+    +Boolean is_blocked
+    +Integer failed_attempts
+    +DateTime last_failed_attempt
+    +DateTime created_at
+}
+
+class Device {
+    +String id
+    +String name
+    +String serial_number
+    +String status
+    +Float last_known_lat
+    +Float last_known_lng
+}
+
+class ExitRequest {
+    +String id
+    +String reason
+    +String status
+    +DateTime request_date
+    +DateTime expiry_date
+}
+
+class UserDevice {
+    +String id
+    +String device_id_hash
+    +String device_name
+    +String last_ip
+    +Boolean is_trusted
+    +DateTime last_login
+}
+
+class SecurityLog {
+    +String id
+    +String action
+    +String details
+    +String ip_address
+    +String user_agent
+    +String status
+    +String risk_level
+    +Integer risk_score
+    +DateTime created_at
+}
+
+class SecurityAlert {
+    +String id
+    +String type
+    +String message
+    +Boolean is_resolved
+    +DateTime created_at
+}
+
+class AuthorizedZone {
+    +String id
+    +String name
+    +Float center_lat
+    +Float center_lng
+    +Float radius_meters
+}
+
+User "0..*" -- "1" Role
+User "0..*" -- "0..1" Department
+Device "0..*" -- "0..1" User : owner
+Device "0..*" -- "0..1" Department
+ExitRequest "0..*" -- "1" Device
+ExitRequest "0..*" -- "1" User : requester
+ExitRequest "0..*" -- "0..1" User : approved_by
+UserDevice "0..*" -- "1" User
+SecurityLog "0..*" -- "0..1" User
+SecurityLog "0..*" -- "0..1" Department
+SecurityAlert "0..*" -- "0..1" User
+SecurityAlert "0..*" -- "0..1" Department
+AuthorizedZone "0..*" -- "0..1" Department
+
+@enduml
+
+@startuml State Diagram - Exit Request
+
+[*] --> PENDING : Create Request
+PENDING --> APPROVED : Admin Approval
+PENDING --> REJECTED : Admin Rejection
+APPROVED --> OUT : Porter Confirmation
+OUT --> AVAILABLE : Equipment Returned
+REJECTED --> [*]
+AVAILABLE --> [*]
+
+@enduml
+
+@startuml Activity Diagram - Secure Login
+
+start
+:Saisir Email et Mot de Passe;
+if (Utilisateur existe ?) then (oui)
+    if (Mot de passe valide ?) then (oui)
+        :Réinitialiser tentatives échouées;
+        :Évaluer le risque (IP, Appareil, Lieu);
+        if (MFA activé OU Risque élevé ?) then (oui)
+            :Demander code OTP;
+            :Vérifier code OTP;
+            if (Code correct ?) then (oui)
+                :Marquer appareil comme de confiance;
+            else (non)
+                :Log échec MFA;
+                stop
+            endif
+        endif
+        :Générer tokens JWT;
+        :Log succès connexion;
+        :Accès au Dashboard;
+    else (non)
+        :Incrémenter tentatives échouées;
+        if (Tentatives >= 5 ?) then (oui)
+            :Bloquer le compte;
+            :Générer alerte de sécurité;
+        endif
+        :Afficher erreur;
+    endif
+else (non)
+    :Afficher erreur;
+endif
+stop
+
+@enduml
+
+@startuml Sequence Diagram - Exit Request Lifecycle
+
+actor "Employé" as User
+actor "Superviseur" as Admin
+actor "Agent de Sécurité" as Porter
+participant "API Flask" as API
+database "MySQL/PostgreSQL" as DB
+
+User -> API : POST /api/exit_requests (device_id, reason)
+activate API
+API -> DB : INSERT INTO exit_requests (status=PENDING)
+API -> DB : UPDATE devices SET status=EXIT_REQUESTED
+API -> DB : INSERT INTO security_logs (action=EXIT_REQUEST_CREATED)
+API --> User : success (id)
+deactivate API
+
+Admin -> API : POST /api/exit_requests/{id}/approve
+activate API
+API -> DB : UPDATE exit_requests SET status=APPROVED
+API -> DB : INSERT INTO security_logs (action=EXIT_REQUEST_APPROVED)
+API --> Admin : confirmed
+deactivate API
+
+Porter -> API : POST /api/exit_requests/{id}/confirm
+activate API
+API -> DB : UPDATE exit_requests SET status=OUT
+API -> DB : UPDATE devices SET status=OUT
+API -> DB : INSERT INTO movement_logs (action=EXIT)
+API -> DB : INSERT INTO security_logs (action=EXIT_CONFIRMED)
+API --> Porter : confirmed
+deactivate API
+
+@enduml
+
+@startuml Use Case Diagram - Seth System
+left to right direction
+
+actor "Employé" as User
+actor "Admin Département" as DeptAdmin
+actor "Super Admin" as SuperAdmin
+actor "Agent de Sécurité" as Porter
+actor "Système" << System >> as Sys
+
+package "Gestion des Équipements" {
+  usecase "Consulter ses équipements" as UC1
+  usecase "Faire une demande de sortie" as UC2
+  usecase "Approuver/Refuser demande" as UC3
+  usecase "Gérer le stock (Inventaire)" as UC4
+}
+
+package "Sécurité & Contrôle" {
+  usecase "Confirmer Sortie Physique" as UC5
+  usecase "Confirmer Retour Équipement" as UC6
+  usecase "Paramétrer Zones (Geofencing)" as UC7
+  usecase "Consulter Logs Audit" as UC8
+  usecase "Recevoir Alertes Sécurité" as UC9
+  usecase "Gérer Utilisateurs & Rôles" as UC10
+}
+
+User --> UC1
+User --> UC2
+
+DeptAdmin --|> User
+DeptAdmin --> UC3
+DeptAdmin --> UC4
+DeptAdmin --> UC8
+
+SuperAdmin --|> DeptAdmin
+SuperAdmin --> UC7
+SuperAdmin --> UC9
+SuperAdmin --> UC10
+
+Porter --> UC5
+Porter --> UC6
+
+Sys --> UC9 : "Anomalie détectée"
+@enduml
+
+@startuml Sequence Diagram - Secure Login with MFA & Risk
+actor "Utilisateur" as User
+participant "Front-end (React)" as FE
+participant "API Auth" as API
+participant "SecurityService" as Secur
+database "Base de Données" as DB
+
+User -> FE : Entre Email / Mot de passe
+FE -> API : POST /api/auth/login
+activate API
+API -> DB : Vérifier utilisateur & hash
+DB --> API : OK
+
+API -> Secur : evaluate_login_risk(ip, user_agent)
+activate Secur
+Secur -> DB : Vérifier appareils connus
+DB --> Secur : Appareil Inconnu !
+Secur --> API : Risk Score: HIGH (MFA Required)
+deactivate Secur
+
+API --> FE : 200 MFA_REQUIRED (user_id)
+FE --> User : Demande de code OTP (Google Auth)
+
+User -> FE : Saisit le code OTP
+FE -> API : POST /api/auth/mfa/verify (token, user_id)
+
+API -> Secur : verify_otp(secret, token)
+Secur --> API : Code Valide
+
+API -> DB : Enregistrer nouvel appareil de confiance
+API -> Secur : generate_tokens(user)
+Secur --> API : AccessToken + RefreshToken
+
+API --> FE : 200 Success (Tokens + Role)
+FE --> User : Accès au Dashboard
+deactivate API
+@enduml
+
+@startuml Activity Diagram - Equipment Exit Process
+
+start
+:Employé remplit le formulaire de sortie;
+note right: Raison, Équipement, Durée
+
+:Système enregistre la demande (PENDING);
+:Notification envoyée à l'Admin Département;
+
+if (Admin approuve ?) then (non)
+    :Statut = REJECTED;
+    :Notification échec à l'employé;
+    stop
+else (oui)
+    :Statut = APPROVED;
+    :Génération d'un code/QR de sortie;
+endif
+
+:Employé se présente au poste de garde;
+:Agent de sécurité vérifie l'autorisation;
+
+if (Données concordent ?) then (non)
+    :Sortie bloquée;
+    :Log incident de sécurité;
+    stop
+else (oui)
+    :Agent confirme la sortie;
+    :Statut équipement = OUT;
+    :Enregistrement MovementLog;
+endif
+
+stop
+@enduml
+
+
+

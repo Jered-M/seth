@@ -1,0 +1,16 @@
+# Node
+node_modules/
+dist/
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+.env
+
+# Prisma / DB
+dev.db
+dev.db-journal
+generated/
