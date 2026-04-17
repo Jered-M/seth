@@ -13,15 +13,7 @@ import { AdminDepartments } from './pages/AdminDepartments'
 import { DashboardDepartment } from './pages/DashboardDepartment'
 import DepartmentEquipmentMap from './pages/DepartmentEquipmentMap'
 import { useState, useEffect } from 'react'
-import { authService } from './services/authService'
-
-interface User {
-    id: string;
-    username: string;
-    email: string;
-    role: string;
-    department?: string;
-}
+import { authService, User } from './services/authService'
 
 function App() {
     const [user, setUser] = useState<User | null>(null)
@@ -31,7 +23,7 @@ function App() {
         // Vérifier si un utilisateur est déjà connecté
         const currentUser = authService.getCurrentUser()
         if (currentUser) {
-            setUser(currentUser as User)
+            setUser(currentUser)
         }
         setLoading(false)
     }, [])

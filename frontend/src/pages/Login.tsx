@@ -3,7 +3,6 @@ import { motion } from 'framer-motion'
 import { Shield, Lock, Mail, ArrowRight, AlertCircle, Monitor, Users, ShieldAlert } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
-import { TOTPVerification } from '../components/TOTPVerification'
 
 const getBrowserLocation = async (): Promise<{ lat: number; lng: number; accuracy?: number } | null> => {
     if (!navigator.geolocation) return null;
@@ -22,12 +21,8 @@ const getBrowserLocation = async (): Promise<{ lat: number; lng: number; accurac
     });
 };
 
-interface User {
-    id: string;
-    username: string;
-    email: string;
-    role: string;
-}
+import { authService, User } from '../services/authService'
+import { TOTPVerification } from '../components/TOTPVerification'
 
 export const Login = ({ onLogin }: { onLogin: (user: User) => void }) => {
     const [email, setEmail] = useState('')

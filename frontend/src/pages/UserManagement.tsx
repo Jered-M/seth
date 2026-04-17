@@ -501,8 +501,3 @@ export const UserManagement = () => {
     );
 };
 
-const Loader2 = ({ className }: { className?: string }) => (
-    <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1, ease: 'linear' }} className={className}>
-        <Users />
-    </motion.div>
-);
