@@ -3,7 +3,7 @@ FROM python:3.11-slim
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PYTHONPATH=/app/backend \
-    USE_SQLITE=true \
+    USE_SQLITE=false \
     ENABLE_SCHEDULER=true
 
 WORKDIR /app

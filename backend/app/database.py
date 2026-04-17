@@ -28,71 +28,70 @@ def _normalize_database_url(raw_url: str) -> str:
 
 def init_db(app):
     """Initialise l'application avec SQLAlchemy"""
-    db_url = _normalize_database_url(os.getenv("DATABASE_URL"))
+    raw_url = os.getenv("DATABASE_URL", "")
+    db_url = _normalize_database_url(raw_url)
 
-    # Debug: afficher l'URL masquée (protection mot de passe)
+    # Debug: afficher l'URL masquée (protection mot de passe) de manière sécurisée
     masked_url = db_url
-    if "@" in db_url:
-        protocol_part, auth_part = db_url.split("://", 1)
-        cred_part, host_part = auth_part.split("@", 1)
-        masked_url = f"{protocol_part}://***:***@{host_part}"
+    try:
+        if "://" in db_url and "@" in db_url:
+            protocol_part, auth_part = db_url.split("://", 1)
+            if "@" in auth_part:
+                cred_part, host_part = auth_part.split("@", 1)
+                masked_url = f"{protocol_part}://***:***@{host_part}"
+    except Exception:
+        masked_url = "[URL_INVALID_OR_UNPARSABLE]"
+    
     print(f"DEBUG: SQLAlchemy URI being used: {masked_url}")
 
     use_sqlite = os.getenv("USE_SQLITE", "false").lower() == "true"
     allow_sqlite_fallback = os.getenv("ALLOW_SQLITE_FALLBACK", "false").lower() == "true"
 
     # Fallback explicite sur SQLite pour le développement local
-    if use_sqlite or not db_url:
+    if (use_sqlite or not raw_url or "votre_url" in raw_url):
         db_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "seth_local.db")
         db_url = f"sqlite:///{db_path}"
-        print(f"⚠️ Utilisation de SQLite (développement): {db_path}")
-    elif db_url.startswith("mysql"):
-        try:
-            engine = create_engine(db_url, pool_pre_ping=True)
-            with engine.connect():
-                pass
-            print("✅ Connexion MySQL établie")
-        except Exception as e:
-            if allow_sqlite_fallback:
-                db_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "seth_local.db")
-                db_url = f"sqlite:///{db_path}"
-                print(f"⚠️ MySQL indisponible, bascule vers SQLite: {db_path}")
-            else:
-                raise RuntimeError(f"Connexion MySQL impossible: {e}") from e
+        print(f"⚠️ SQLITE MODE: {db_path}")
     elif db_url.startswith("postgresql"):
         try:
+            print("⏳ Vérification de la connexion Supabase...")
             engine = create_engine(db_url, pool_pre_ping=True)
-            with engine.connect():
-                pass
+            with engine.connect() as conn:
+                conn.execute("SELECT 1")
             print("✅ Connexion PostgreSQL/Supabase établie")
         except Exception as e:
+            print(f"❌ ÉCHEC CONNEXION POSTGRES: {e}")
             if allow_sqlite_fallback:
                 db_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "seth_local.db")
                 db_url = f"sqlite:///{db_path}"
-                print(f"⚠️ PostgreSQL indisponible, bascule vers SQLite: {db_path}")
+                print(f"⚠️ Bascule de secours vers SQLite")
             else:
-                raise RuntimeError(f"Connexion PostgreSQL impossible: {e}") from e
+                # On ne lève pas d'exception ici pour laisser db.init_app tenter sa chance
+                pass
     
     app.config['SQLALCHEMY_DATABASE_URI'] = db_url
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
     app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
         "pool_pre_ping": True,
         "pool_recycle": 300,
+        "connect_args": {"connect_timeout": 10} if db_url.startswith("postgresql") else {}
     }
     app.config['SECRET_KEY'] = os.getenv("SECRET_KEY", "dev-secret-key")
     
-    db.init_app(app)
-    
     try:
+        db.init_app(app)
         with app.app_context():
-            from app.models.security_models import (
-                User, Role, Department, Device, ExitRequest, UserDevice, 
-                SecurityLog, SecurityAlert, AuthorizedZone
-            )
+            from app.models.security_models import Role # Trigger model loading
             db.create_all()
-            print("🚀 Base de données initialisée avec succès.")
+            print("🚀 Base de données initialisée (create_all executed)")
+            
+            # Auto-seed if needed
+            from app.seeds import seed_data
+            seed_data()
     except Exception as e:
-        print(f"❌ Erreur d'initialisation DB: {e}")
+        print(f"❌ CRITICAL ERROR IN INIT_DB: {e}")
+        import traceback
+        traceback.print_exc()
 
 def execute_query(query, params=None, is_select=True):
     from app.database import db
