@@ -15,7 +15,13 @@ scheduler = None
 
 if __name__ == "__main__":
     with app.app_context():
-        # Optionnel: seed data automatically or via flag
+        # Auto-seed if database is empty
+        from app.models.security_models import Role
+        if not Role.query.first():
+            print("🌑 Base de données vide, lancement du seeding...")
+            seed_data()
+            print("🌕 Seeding terminé.")
+        
         if "--seed" in sys.argv:
             seed_data()
 

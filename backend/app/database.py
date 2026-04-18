@@ -81,13 +81,10 @@ def init_db(app):
     try:
         db.init_app(app)
         with app.app_context():
-            from app.models.security_models import Role # Trigger model loading
+            # Import models inside context to avoid circularity
+            import app.models.security_models
             db.create_all()
             print("🚀 Base de données initialisée (create_all executed)")
-            
-            # Auto-seed if needed
-            from app.seeds import seed_data
-            seed_data()
     except Exception as e:
         print(f"❌ CRITICAL ERROR IN INIT_DB: {e}")
         import traceback
