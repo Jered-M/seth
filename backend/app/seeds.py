@@ -105,3 +105,68 @@ def seed_data():
         db.session.add(user)
         db.session.commit()
         print("✅ Utilisateur régulier créé: user@seth.com / User123! (Informatique)")
+
+    # TEST DEVICES WITHOUT HARDCODED GPS - FOR REAL TRACKING
+    print("\n🌍 Seeding real Devices per department...")
+    from app.models.security_models import Device
+    import uuid
+
+    devices_data = {
+        "Informatique": [
+            {"name": "Laptop Dev1", "serial": "EQ-IT-LAPTOP-001", "status": "ASSIGNED"},
+            {"name": "Server Node1", "serial": "EQ-IT-SRV-001", "status": "IN_USE"},
+            {"name": "Tablet Admin", "serial": "EQ-IT-TAB-001", "status": "AVAILABLE"},
+        ],
+        "Ressources Humaines": [
+            {"name": "HR Laptop", "serial": "EQ-HR-LAPTOP-001", "status": "AVAILABLE"},
+            {"name": "HR Tablet", "serial": "EQ-HR-TAB-001", "status": "IN_USE"},
+        ],
+        "Finance": [
+            {"name": "Finance Workstation", "serial": "EQ-FIN-WS-001", "status": "AVAILABLE"},
+            {"name": "Finance Laptop", "serial": "EQ-FIN-LAPTOP-001", "status": "MAINTENANCE"},
+        ],
+        "Marketing": [
+            {"name": "Marketing iPad", "serial": "EQ-MKT-IPAD-001", "status": "AVAILABLE"},
+            {"name": "Marketing Laptop", "serial": "EQ-MKT-LAPTOP-001", "status": "IN_USE"},
+        ]
+    }
+
+    created_count = 0
+    super_admin_user = User.query.filter_by(username="superadmin").first()
+    
+    for dept_name, devices in devices_data.items():
+        dept = dept_map.get(dept_name)
+        if not dept:
+            print(f"⚠️  Département {dept_name} manquant, skip devices")
+            continue
+
+        for dev_data in devices:
+            serial = dev_data["serial"]
+            existing_device = Device.query.filter_by(serial_number=serial).first()
+            
+            if existing_device:
+                # Update existing device to remove fake GPS
+                existing_device.last_known_lat = None
+                existing_device.last_known_lng = None
+                if serial == "EQ-IT-LAPTOP-001" and super_admin_user:
+                    existing_device.user_id = super_admin_user.id
+                    existing_device.status = "ASSIGNED"
+                print(f"✅ Device {serial} réinitialisé pour tracking réel")
+                continue
+
+            device = Device(
+                id=str(uuid.uuid4()),
+                name=dev_data["name"],
+                serial_number=serial,
+                department_id=dept.id,
+                status=dev_data["status"],
+                last_known_lat=None,
+                last_known_lng=None,
+                user_id=super_admin_user.id if serial == "EQ-IT-LAPTOP-001" and super_admin_user else None
+            )
+            db.session.add(device)
+            created_count += 1
+
+    db.session.commit()
+    print(f"✅ {created_count} test GPS devices seeded across departments!")
+

@@ -35,6 +35,9 @@ export const equipmentService = {
             return (Array.isArray(response.data) ? response.data : []).map((item: any) => ({
                 ...item,
                 serialNumber: item.serialNumber || item.qrCode || item.serial_number || item.id,
+                // GPS field mapping fix for localization
+                lat: item.last_known_lat || item.latitude || null,
+                lng: item.last_known_lng || item.longitude || null,
             }));
         } catch (error: any) {
             if (![404, 405].includes(error?.response?.status)) throw error;
@@ -42,9 +45,13 @@ export const equipmentService = {
             return (Array.isArray(fallbackResponse.data) ? fallbackResponse.data : []).map((item: any) => ({
                 ...item,
                 serialNumber: item.serialNumber || item.qrCode || item.serial_number || item.id,
+                // GPS field mapping fix for localization
+                lat: item.last_known_lat || item.latitude || null,
+                lng: item.last_known_lng || item.longitude || null,
             }));
         }
     },
+
 
     async create(data: CreateEquipmentData): Promise<{ message: string; id: string }> {
         try {

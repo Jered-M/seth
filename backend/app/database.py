@@ -1,7 +1,7 @@
 import os
 from flask_sqlalchemy import SQLAlchemy
 from dotenv import load_dotenv
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 
 load_dotenv()
 
@@ -51,20 +51,20 @@ def init_db(app):
     if (use_sqlite or not raw_url or "votre_url" in raw_url):
         db_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "seth_local.db")
         db_url = f"sqlite:///{db_path}"
-        print(f"⚠️ SQLITE MODE: {db_path}")
+        print(f"[SQLITE] MODE: {db_path}")
     elif db_url.startswith("postgresql"):
         try:
-            print("⏳ Vérification de la connexion Supabase...")
+            print("[DB] Verification de la connexion Supabase...")
             engine = create_engine(db_url, pool_pre_ping=True)
             with engine.connect() as conn:
-                conn.execute("SELECT 1")
-            print("✅ Connexion PostgreSQL/Supabase établie")
+                conn.execute(text("SELECT 1"))
+            print("[OK] Connexion PostgreSQL/Supabase etablie")
         except Exception as e:
-            print(f"❌ ÉCHEC CONNEXION POSTGRES: {e}")
+            print(f"[ERROR] ECHEC CONNEXION POSTGRES: {e}")
             if allow_sqlite_fallback:
                 db_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "seth_local.db")
                 db_url = f"sqlite:///{db_path}"
-                print(f"⚠️ Bascule de secours vers SQLite")
+                print(f"[WARN] Bascule de secours vers SQLite")
             else:
                 # On ne lève pas d'exception ici pour laisser db.init_app tenter sa chance
                 pass
@@ -84,11 +84,15 @@ def init_db(app):
             # Import models inside context to avoid circularity
             import app.models.security_models
             db.create_all()
-            print("🚀 Base de données initialisée (create_all executed)")
+            print("[OK] Base de données initialisée (create_all executed)")
     except Exception as e:
-        print(f"❌ CRITICAL ERROR IN INIT_DB: {e}")
+        print(f"[CRITICAL ERROR] IN INIT_DB: {e}")
         import traceback
         traceback.print_exc()
+
+def get_db_connection():
+    """Retourne une connexion brute à la base de données (pour compatibilité)."""
+    return db.engine.raw_connection()
 
 def execute_query(query, params=None, is_select=True):
     from app.database import db
