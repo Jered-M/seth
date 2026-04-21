@@ -1,5 +1,5 @@
 import os
-from flask import Flask
+from flask import Flask, send_from_directory
 from flask_cors import CORS
 from flask_jwt_extended import JWTManager
 from app.database import init_db
@@ -11,16 +11,19 @@ from app.routes.equipment import equipment_bp
 from app.routes.supervisor import supervisor_bp
 
 def create_app():
-    app = Flask(__name__)
+    # On définit le dossier dist du frontend comme dossier statique
+    dist_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), '../frontend/dist')
     
-    # Configuration CORS ouverte pour les tests sur Render
+    app = Flask(__name__, static_folder=dist_path, static_url_path='/')
+    
+    # CORS n'est plus vraiment nécessaire si c'est le même serveur, mais on le garde par sécurité
     CORS(app, resources={r"/api/*": {"origins": "*"}}, supports_credentials=True)
     
     # JWT Config
     app.config["JWT_SECRET_KEY"] = os.getenv("JWT_SECRET_KEY", "super-secret")
     jwt = JWTManager(app)
     
-    # Initialize Database (PostgreSQL via SQLAlchemy)
+    # Initialize Database
     init_db(app)
     
     from strawberry.flask.views import GraphQLView
@@ -40,12 +43,13 @@ def create_app():
         view_func=GraphQLView.as_view("graphql_view", schema=schema),
     )
     
-    @app.route("/")
-    def index():
-        return {
-            "name": "SetH - IT Equipment Management & Security API",
-            "version": "2.0",
-            "status": "Running"
-        }
+    # Route pour servir l'application React
+    @app.route("/", defaults={'path': ''})
+    @app.route("/<path:path>")
+    def serve(path):
+        if path != "" and os.path.exists(os.path.join(app.static_folder, path)):
+            return send_from_directory(app.static_folder, path)
+        else:
+            return send_from_directory(app.static_folder, 'index.html')
 
     return app
