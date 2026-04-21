@@ -200,7 +200,7 @@ export const Equipments = () => {
                     </div>
                 </div>
 
-                <div className="overflow-x-auto">
+                <div className="hidden lg:block overflow-x-auto">
                     <table className="w-full">
                         <thead>
                             <tr className="bg-[#0d1224] border-b border-white/5">
@@ -276,15 +276,67 @@ export const Equipments = () => {
                             ))}
                         </tbody>
                     </table>
-                    
-                    {filteredEquipments.length === 0 && !loading && (
-                        <div className="p-20 text-center">
-                            <Box className="w-12 h-12 text-slate-800 mx-auto mb-4" />
-                            <p className="text-[10px] font-black text-slate-600 uppercase tracking-widest">AUCUN ÉQUIPEMENT RÉPERTORIÉ</p>
-                            <p className="text-[9px] text-slate-700 mt-2 uppercase">Initialisation de la base de données requise.</p>
-                        </div>
-                    )}
                 </div>
+
+                {/* Mobile View: Cards */}
+                <div className="lg:hidden divide-y divide-white/5">
+                    {filteredEquipments.map((item) => (
+                        <div key={item.id} className="p-6 bg-white/[0.01] space-y-4">
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-10 h-10 bg-[#161b2e] border border-white/5 rounded flex items-center justify-center text-blue-400">
+                                        {getIcon(item.type)}
+                                    </div>
+                                    <div>
+                                        <p className="text-sm font-bold text-white tracking-tight">{item.serialNumber}</p>
+                                        <p className="text-[10px] font-mono text-slate-500 uppercase">{item.type}</p>
+                                    </div>
+                                </div>
+                                <span className={`status-badge ${getStatusStyles(item.status)}`}>
+                                    {item.status}
+                                </span>
+                            </div>
+                            
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <p className="text-[9px] font-black text-slate-600 uppercase tracking-widest mb-1">Localisation</p>
+                                    <p className="text-[10px] font-bold text-slate-400 uppercase italic">{item.location || 'N/A'}</p>
+                                </div>
+                                <div>
+                                    <p className="text-[9px] font-black text-slate-600 uppercase tracking-widest mb-1">Opérateur</p>
+                                    <p className="text-[10px] font-bold text-slate-300 uppercase">{item.assignedTo || 'Non assigné'}</p>
+                                </div>
+                            </div>
+
+                            <div className="pt-2 flex gap-2">
+                                {canAssignEquipment && (
+                                    <button
+                                        onClick={() => {
+                                            setAssigningEquipment(item.id)
+                                            setShowAssignModal(true)
+                                            equipmentService.getAssignableUsers(item.id).then(setUsers)
+                                        }}
+                                        className="flex-1 py-2 bg-blue-600 shadow-lg shadow-blue-900/20 text-white rounded text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2"
+                                    >
+                                        <UserPlus className="w-3.5 h-3.5" />
+                                        Assigner
+                                    </button>
+                                )}
+                                <button className="flex-1 py-2 bg-white/5 text-slate-400 rounded text-[10px] font-black uppercase tracking-widest border border-white/5">
+                                    Détails
+                                </button>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+                
+                {filteredEquipments.length === 0 && !loading && (
+                    <div className="p-20 text-center">
+                        <Box className="w-12 h-12 text-slate-800 mx-auto mb-4" />
+                        <p className="text-[10px] font-black text-slate-600 uppercase tracking-widest">AUCUN ÉQUIPEMENT RÉPERTORIÉ</p>
+                        <p className="text-[9px] text-slate-700 mt-2 uppercase">Initialisation de la base de données requise.</p>
+                    </div>
+                )}
             </div>
 
             {loading && (

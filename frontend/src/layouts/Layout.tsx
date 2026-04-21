@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Link, Outlet, useLocation } from 'react-router-dom'
 import {
     LayoutDashboard,
@@ -11,7 +12,9 @@ import {
     ShieldAlert,
     ClipboardList,
     Settings,
-    FileCheck
+    FileCheck,
+    Menu,
+    X
 } from 'lucide-react'
 
 interface User {
@@ -25,6 +28,7 @@ interface LayoutProps {
 }
 
 export const Layout = ({ user, onLogout }: LayoutProps) => {
+    const [isSidebarOpen, setIsSidebarOpen] = useState(false)
     const location = useLocation()
     const role = user.role
     const normalizedRole = role === 'ADMIN_GENERAL' ? 'SUPER_ADMIN' : role === 'ADMIN_DEPT' ? 'DEPT_ADMIN' : role === 'SECURITY_AGENT' ? 'GARDIEN' : role
@@ -41,11 +45,26 @@ export const Layout = ({ user, onLogout }: LayoutProps) => {
         { icon: Settings, label: 'Paramètres', path: '/settings', roles: ['SUPER_ADMIN', 'DEPT_ADMIN'] },
     ]
 
+    const toggleSidebar = () => setIsSidebarOpen(!isSidebarOpen)
+
     return (
         <div className="flex min-h-screen bg-[#060b18] text-slate-200 font-sans">
+            {/* Mobile Overlay */}
+            {isSidebarOpen && (
+                <div 
+                    className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 lg:hidden"
+                    onClick={() => setIsSidebarOpen(false)}
+                />
+            )}
+
             {/* Sidebar */}
-            <aside className="w-64 bg-[#0a0f1d] border-r border-white/5 flex flex-col fixed inset-y-0 z-30 shadow-2xl">
-                <div className="p-6 border-b border-white/5 bg-[#0d1224]">
+            <aside className={`
+                fixed inset-y-0 left-0 z-50 w-64 bg-[#0a0f1d] border-r border-white/5 flex flex-col 
+                transition-transform duration-300 transform 
+                ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} 
+                lg:translate-x-0 lg:static lg:inset-y-auto
+            `}>
+                <div className="p-6 border-b border-white/5 bg-[#0d1224] flex items-center justify-between">
                     <div className="flex items-center gap-3">
                         <div className="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center shadow-lg shadow-blue-900/40">
                             <Monitor className="text-white w-6 h-6" />
@@ -55,6 +74,9 @@ export const Layout = ({ user, onLogout }: LayoutProps) => {
                             <p className="text-[10px] text-blue-400 font-black tracking-widest mt-1 uppercase">SECURITY OS</p>
                         </div>
                     </div>
+                    <button onClick={toggleSidebar} className="lg:hidden text-slate-400 hover:text-white">
+                        <X className="w-6 h-6" />
+                    </button>
                 </div>
 
                 <nav className="flex-1 px-3 py-6 space-y-1 overflow-y-auto">
@@ -65,6 +87,7 @@ export const Layout = ({ user, onLogout }: LayoutProps) => {
                             <Link
                                 key={item.path}
                                 to={item.path}
+                                onClick={() => setIsSidebarOpen(false)}
                                 className={`flex items-center gap-3 px-4 py-3.5 rounded-lg transition-all text-sm font-medium ${isActive
                                     ? 'bg-blue-600/10 text-blue-400 border-l-2 border-blue-600 shadow-sm'
                                     : 'text-slate-500 hover:bg-white/5 hover:text-slate-200 border-l-2 border-transparent'
@@ -89,38 +112,45 @@ export const Layout = ({ user, onLogout }: LayoutProps) => {
             </aside>
 
             {/* Main Content Area */}
-            <main className="flex-1 ml-64 flex flex-col min-h-screen relative">
+            <main className="flex-1 flex flex-col min-h-screen relative w-full overflow-hidden">
                 <div className="absolute inset-0 tactical-grid opacity-20 pointer-events-none"></div>
 
                 {/* Header */}
-                <header className="h-16 bg-[#0a0f1d]/80 backdrop-blur-md border-b border-white/5 flex items-center justify-between px-8 sticky top-0 z-20 shadow-sm">
+                <header className="h-16 bg-[#0a0f1d]/80 backdrop-blur-md border-b border-white/5 flex items-center justify-between px-4 lg:px-8 sticky top-0 z-20 shadow-sm">
                     <div className="flex items-center gap-4">
-                        <div className="relative group overflow-hidden">
+                        <button 
+                            onClick={toggleSidebar}
+                            className="p-2 lg:hidden text-slate-400 hover:text-white bg-white/5 rounded-lg"
+                        >
+                            <Menu className="w-6 h-6" />
+                        </button>
+
+                        <div className="hidden md:flex relative group overflow-hidden">
                             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
                             <input
                                 type="text"
                                 placeholder="RECHERCHE GLOBALE..."
-                                className="pl-10 pr-4 py-1.5 bg-[#060b18] border border-white/5 rounded text-xs font-mono tracking-widest text-slate-300 focus:outline-none focus:border-blue-600/50 w-64 transition-all"
+                                className="pl-10 pr-4 py-1.5 bg-[#060b18] border border-white/5 rounded text-xs font-mono tracking-widest text-slate-300 focus:outline-none focus:border-blue-600/50 w-48 lg:w-64 transition-all"
                             />
                         </div>
                     </div>
 
-                    <div className="flex items-center gap-6">
+                    <div className="flex items-center gap-3 lg:gap-6">
                         <button title="Notifications" className="relative p-2 text-slate-400 hover:text-white transition-colors">
                             <Bell className="w-5 h-5" />
                             <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full border border-[#0a0f1d] animate-pulse"></span>
                         </button>
                         
-                        <div className="h-4 w-[1px] bg-white/10"></div>
+                        <div className="hidden sm:block h-4 w-[1px] bg-white/10"></div>
                         
-                        <div className="flex items-center gap-4">
-                            <div className="text-right">
+                        <div className="flex items-center gap-2 lg:gap-4">
+                            <div className="hidden sm:block text-right">
                                 <p className="text-sm font-bold text-white tracking-tight">{user.name}</p>
                                 <p className="text-[10px] text-blue-400 font-bold uppercase tracking-tighter">
-                                    {normalizedRole.replace('_', ' ')} // LVL_4
+                                    {normalizedRole.replace('_', ' ')}
                                 </p>
                             </div>
-                            <div className="w-9 h-9 bg-blue-600 rounded flex items-center justify-center text-white font-black text-sm shadow-lg shadow-blue-900/20">
+                            <div className="w-8 h-8 lg:w-9 lg:h-9 bg-blue-600 rounded flex items-center justify-center text-white font-black text-xs lg:text-sm shadow-lg shadow-blue-900/20">
                                 {user.name.charAt(0)}
                             </div>
                         </div>
@@ -128,7 +158,7 @@ export const Layout = ({ user, onLogout }: LayoutProps) => {
                 </header>
 
                 {/* Page Content */}
-                <div className="flex-1 p-8 relative z-10 overflow-auto">
+                <div className="flex-1 p-4 lg:p-8 relative z-10 overflow-x-hidden">
                     <Outlet />
                 </div>
             </main>

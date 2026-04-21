@@ -158,21 +158,21 @@ export const TrackingMap = () => {
     return (
         <div className="space-y-8 max-w-[1600px] mx-auto animate-in fade-in duration-500">
             {/* Header Area */}
-            <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 pb-6 border-b border-white/5">
+            <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-4 pb-6 border-b border-white/5">
                 <div>
-                    <h2 className="text-3xl font-bold text-white tracking-tight uppercase flex items-center gap-3">
+                    <h2 className="text-2xl lg:text-3xl font-bold text-white tracking-tight uppercase flex items-center gap-3">
                         <LocateFixed className="w-8 h-8 text-blue-500" />
-                        Surveillance Géospatiale
+                        Surveillance
                     </h2>
                     <p className="text-slate-400 mt-1 uppercase text-[10px] tracking-[0.2em] font-black italic">
-                        Sentinel Global Tracking // Node_Alpha_Location
+                        Sentinel Global Tracking
                     </p>
                 </div>
 
-                <div className="flex items-center gap-4 bg-[#0a0f1d] p-1 border border-white/5 rounded-lg">
+                <div className="flex items-center gap-2 bg-[#0a0f1d] p-1 border border-white/5 rounded-lg w-full lg:w-auto">
                     <button
                         onClick={() => setView('2D')}
-                        className={`flex items-center gap-2 px-6 py-2 rounded text-[10px] font-black uppercase tracking-widest transition-all ${
+                        className={`flex-1 lg:flex-none flex items-center justify-center gap-2 px-4 lg:px-6 py-2 rounded text-[10px] font-black uppercase tracking-widest transition-all ${
                             view === '2D' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/40' : 'text-slate-500 hover:text-white'
                         }`}
                     >
@@ -181,7 +181,7 @@ export const TrackingMap = () => {
                     </button>
                     <button
                         onClick={() => setView('3D')}
-                        className={`flex items-center gap-2 px-6 py-2 rounded text-[10px] font-black uppercase tracking-widest transition-all ${
+                        className={`flex-1 lg:flex-none flex items-center justify-center gap-2 px-4 lg:px-6 py-2 rounded text-[10px] font-black uppercase tracking-widest transition-all ${
                             view === '3D' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/40' : 'text-slate-500 hover:text-white'
                         }`}
                     >
@@ -192,7 +192,7 @@ export const TrackingMap = () => {
             </div>
 
             {/* Map Monitor Terminal */}
-            <div className="relative pro-card overflow-hidden h-[600px] border-blue-900/30 group">
+            <div className="relative pro-card overflow-hidden h-[400px] lg:h-[600px] border-blue-900/30 group">
                 <div className="absolute inset-0 tactical-grid opacity-10"></div>
                 
                 {/* Loader Overlay */}

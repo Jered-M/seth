@@ -82,13 +82,13 @@ export const Dashboard = () => {
     return (
         <div className="space-y-8 max-w-[1600px] mx-auto animate-in fade-in duration-500">
             {/* Header Section */}
-            <div className="pb-6 border-b border-white/5">
-                <h2 className="text-3xl font-bold text-white tracking-tight uppercase flex items-center gap-3">
-                    <LayoutDashboard className="w-8 h-8 text-blue-500" />
+            <div className="pb-4 lg:pb-6 border-b border-white/5">
+                <h2 className="text-xl lg:text-3xl font-bold text-white tracking-tight uppercase flex items-center gap-3">
+                    <LayoutDashboard className="w-6 h-6 lg:w-8 lg:h-8 text-blue-500" />
                     Centre de Contrôle
                 </h2>
-                <p className="text-slate-400 mt-1 uppercase text-[10px] tracking-[0.2em] font-black italic">
-                    Sentinel Core // Système d'Exploitation Centralisé
+                <p className="text-slate-400 mt-1 uppercase text-[9px] lg:text-[10px] tracking-[0.2em] font-black italic">
+                    Sentinel Core OS
                 </p>
             </div>
 
