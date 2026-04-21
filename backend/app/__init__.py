@@ -13,16 +13,8 @@ from app.routes.supervisor import supervisor_bp
 def create_app():
     app = Flask(__name__)
     
-    # Configuration CORS améliorée
-    CORS(app, 
-         resources={r"/api/*": {
-             "origins": ["http://localhost:3000", "http://localhost:3050", "http://localhost:3051", "http://127.0.0.1:3000", "http://127.0.0.1:3050", "http://127.0.0.1:3051", "http://192.168.113.1:3050", "http://192.168.113.1:3051", "http://192.168.43.147:3050"],
-             "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-             "allow_headers": ["Content-Type", "Authorization"],
-             "supports_credentials": True
-         }},
-         supports_credentials=True
-    )
+    # Configuration CORS ouverte pour les tests sur Render
+    CORS(app, resources={r"/api/*": {"origins": "*"}}, supports_credentials=True)
     
     # JWT Config
     app.config["JWT_SECRET_KEY"] = os.getenv("JWT_SECRET_KEY", "super-secret")
