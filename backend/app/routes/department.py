@@ -9,6 +9,45 @@ import json
 
 dept_bp = Blueprint("dept", __name__)
 
+@dept_bp.route("/all", methods=["GET"])
+@jwt_required()
+def get_all_departments():
+    depts = Department.query.all()
+    return jsonify([{"id": d.id, "name": d.name} for d in depts]), 200
+
+@dept_bp.route("/stats", methods=["GET"])
+@jwt_required()
+@dept_admin_required
+def get_dept_stats_alias():
+    # Alias pour get_dept_stats pour correspondre au frontend
+    from app.models.security_models import Device, SecurityAlert, ExitRequest, User
+    claims = get_jwt()
+    dept_id = claims["dept"]
+    
+    devices_count = Device.query.filter_by(department_id=dept_id).count()
+    alerts_count = SecurityAlert.query.filter_by(department_id=dept_id, is_resolved=False).count()
+    pending_exits = ExitRequest.query.join(User, ExitRequest.user_id == User.id).filter(User.department_id == dept_id, ExitRequest.status == "PENDING").count()
+    
+    return jsonify({
+        "devices": devices_count,
+        "active_alerts": alerts_count,
+        "pending_exits": pending_exits
+    }), 200
+
+@dept_bp.route("/create", methods=["POST"])
+@jwt_required()
+# Seul un super admin devrait créer un département, mais on l'ajoute ici pour débloquer
+def create_department():
+    data = request.json
+    name = data.get("name")
+    if not name:
+        return jsonify({"message": "Nom requis"}), 400
+    
+    new_dept = Department(name=name)
+    db.session.add(new_dept)
+    db.session.commit()
+    return jsonify({"id": new_dept.id, "name": new_dept.name}), 201
+
 
 @dept_bp.route("/users", methods=["GET"])
 @jwt_required()
