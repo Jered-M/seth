@@ -11,8 +11,12 @@ from app.routes.equipment import equipment_bp
 from app.routes.supervisor import supervisor_bp
 
 def create_app():
-    # On définit le dossier dist du frontend comme dossier statique
-    dist_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), '../frontend/dist')
+    # Définition du chemin absolu vers le dossier dist du frontend
+    # On remonte de 3 niveaux depuis backend/app/__init__.py vers la racine
+    base_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+    dist_path = os.path.abspath(os.path.join(base_dir, 'frontend/dist'))
+    
+    print(f"DEBUG: Serving frontend from: {dist_path}")
     
     app = Flask(__name__, static_folder=dist_path, static_url_path='/')
     
