@@ -51,6 +51,10 @@ def create_app():
     @app.route("/", defaults={'path': ''})
     @app.route("/<path:path>")
     def serve(path):
+        # Si la route commence par 'api', on laisse Flask gérer normalement (ou renvoyer 404 si inexistante)
+        if path.startswith("api"):
+            return "API endpoint not found", 404
+            
         if path != "" and os.path.exists(os.path.join(app.static_folder, path)):
             return send_from_directory(app.static_folder, path)
         else:
