@@ -29,23 +29,28 @@ def _sync_user_devices_location(user_id: str, location: dict):
 @auth_bp.route("/login", methods=["POST"])
 def login():
     data = request.json
-    email = data.get("email")
+    email = data.get("email", "").lower().strip()
     password = data.get("password")
     location = data.get("location")
     user_agent = request.headers.get("User-Agent")
     ip = request.remote_addr
     
-    user = User.query.filter_by(email=email).first()
+    print(f"DEBUG: Login attempt for email={email}, IP={ip}")
+    user = User.query.filter(User.email.ilike(email)).first()
     
-    if not user or not SecurityService.verify_password(password, user.password_hash):
-        if user:
-            SecurityService.log_event(user.id, "LOGIN", "Échec de connexion", ip, user_agent, status="FAILED")
-            # Logique de blocage
-            user.failed_attempts += 1
-            if user.failed_attempts >= 5:
-                user.is_blocked = True
-                SecurityService.create_alert(user.id, "BRUTE_FORCE", "Compte bloqué après 5 échecs")
-            db.session.commit()
+    if not user:
+        print(f"DEBUG: User not found for email={email}")
+        return jsonify({"message": "Identifiants invalides"}), 401
+        
+    if not SecurityService.verify_password(password, user.password_hash):
+        print(f"DEBUG: Password mismatch for user={email}")
+        SecurityService.log_event(user.id, "LOGIN", "Échec de connexion", ip, user_agent, status="FAILED")
+        # Logique de blocage
+        user.failed_attempts += 1
+        if user.failed_attempts >= 5:
+            user.is_blocked = True
+            SecurityService.create_alert(user.id, "BRUTE_FORCE", "Compte bloqué après 5 échecs")
+        db.session.commit()
         return jsonify({"message": "Identifiants invalides"}), 401
 
     if user.is_blocked:

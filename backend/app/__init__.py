@@ -1,5 +1,5 @@
 import os
-from flask import Flask, send_from_directory
+from flask import Flask, send_from_directory, jsonify
 from flask_cors import CORS
 from flask_jwt_extended import JWTManager
 from app.database import init_db
@@ -20,8 +20,13 @@ def create_app():
     
     app = Flask(__name__, static_folder=dist_path, static_url_path='/')
     
-    # CORS n'est plus vraiment nécessaire si c'est le même serveur, mais on le garde par sécurité
+    # Configuration CORS améliorée
+    # Autorise les requêtes avec credentials en reflétant l'origine de la requête
     CORS(app, resources={r"/api/*": {"origins": "*"}}, supports_credentials=True)
+    
+    # Note: Dans un environnement de production strict, remplacez "*" par une liste d'origines autorisées.
+    # Pour le développement local sur plusieurs appareils, "*" avec supports_credentials=True peut être bloqué par certains navigateurs.
+    # Flask-CORS gère généralement cela en renvoyant l'origine de la requête si origins est défini de manière appropriée.
     
     # JWT Config
     app.config["JWT_SECRET_KEY"] = os.getenv("JWT_SECRET_KEY", "super-secret")
@@ -47,17 +52,27 @@ def create_app():
         view_func=GraphQLView.as_view("graphql_view", schema=schema),
     )
     
+    # Diagnostic des chemins (visible dans les logs Render)
+    print(f"DEBUG: Static folder is set to: {app.static_folder}")
+    if not os.path.exists(app.static_folder):
+        print(f"ERROR: Static folder NOT FOUND at {app.static_folder}")
+    else:
+        print(f"SUCCESS: Static folder found. Contents: {os.listdir(app.static_folder)[:5]}")
+
     # Route pour servir l'application React
     @app.route("/", defaults={'path': ''})
     @app.route("/<path:path>")
     def serve(path):
-        # Si la route commence par 'api', on laisse Flask gérer normalement (ou renvoyer 404 si inexistante)
+        # Si la route commence par 'api', et qu'on arrive ici, c'est que l'API n'a pas trouvé la route
         if path.startswith("api"):
-            return "API endpoint not found", 404
+            print(f"DEBUG_404: API request not handled by any blueprint: {path}")
+            return jsonify({"error": "API Route not found", "path": path}), 404
             
-        if path != "" and os.path.exists(os.path.join(app.static_folder, path)):
+        file_path = os.path.join(app.static_folder, path)
+        if path != "" and os.path.exists(file_path):
             return send_from_directory(app.static_folder, path)
         else:
+            # Pour SPA React (React Router)
             return send_from_directory(app.static_folder, 'index.html')
 
     return app
