@@ -83,7 +83,7 @@ export const UserManagement = () => {
         email: '',
         role: 'USER',
         password: '',
-        department_id: ''
+        departmentId: ''
     });
 
     const currentUser = useMemo(() => {
@@ -176,17 +176,30 @@ export const UserManagement = () => {
             } else if (isDeptAdmin) {
                 await api.post('/dept/users', { name: newUser.name, email: newUser.email, password: newUser.password });
             } else {
-                const payload = {
-                    name: newUser.name,
-                    email: newUser.email,
-                    role: newUser.role,
-                    password: newUser.password,
-                    ...(newUser.role === 'DEPT_ADMIN' && newUser.department_id ? { department_id: newUser.department_id } : {})
-                };
-                await api.post('/admin/users', payload);
+                if (newUser.role === 'DEPT_ADMIN') {
+                    if (!newUser.departmentId) {
+                        setFormError('Veuillez sélectionner un département pour créer un admin de département');
+                        return;
+                    }
+                    // Créer un admin de département
+                    await api.post('/admin/departments', {
+                        name: newUser.name,
+                        email: newUser.email,
+                        departmentId: parseInt(newUser.departmentId)
+                    });
+                } else {
+                    // Créer un utilisateur standard
+                    const payload = {
+                        name: newUser.name,
+                        email: newUser.email,
+                        role: newUser.role,
+                        password: newUser.password
+                    };
+                    await api.post('/admin/users', payload);
+                }
             }
             setShowAddForm(false);
-            setNewUser({ name: '', email: '', role: 'USER', password: '', department_id: '' });
+            setNewUser({ name: '', email: '', role: 'USER', password: '', departmentId: '' });
             await refreshAll();
         } catch (error: any) {
             setFormError(error?.response?.data?.message || error?.message || 'Erreur lors de la création');
@@ -319,7 +332,7 @@ export const UserManagement = () => {
                                     {formError}
                                 </div>
                             )}
-                            <form onSubmit={handleCreateUser} className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+                            <form onSubmit={handleCreateUser} className="grid grid-cols-1 md:grid-cols-5 gap-4 items-end">
                                 <div className="space-y-1.5">
                                     <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Nom de Code</label>
                                     <input
@@ -353,17 +366,31 @@ export const UserManagement = () => {
                                         placeholder="CLÉ SÉCURISÉE..."
                                     />
                                 </div>
-                                <div className="flex gap-3">
+                                <div className="flex gap-3 col-span-full md:col-span-2">
                                     {!isSupervisor && !isDeptAdmin && (
                                         <select
                                             title="Rôle utilisateur"
                                             value={newUser.role}
-                                            onChange={e => setNewUser({ ...newUser, role: e.target.value })}
+                                            onChange={e => setNewUser({ ...newUser, role: e.target.value, departmentId: '' })}
                                             className="flex-1 px-4 py-2.5 bg-[#060b18] border border-white/10 rounded-lg text-xs text-white focus:outline-none focus:border-blue-600 uppercase"
                                         >
                                             <option value="USER">Opérateur</option>
                                             <option value="DEPT_ADMIN">Admin Dept</option>
                                             <option value="SUPERVISOR">Superviseur</option>
+                                        </select>
+                                    )}
+                                    {newUser.role === 'DEPT_ADMIN' && departments.length > 0 && (
+                                        <select
+                                            title="Département"
+                                            required
+                                            value={newUser.departmentId}
+                                            onChange={e => setNewUser({ ...newUser, departmentId: e.target.value })}
+                                            className="flex-1 px-4 py-2.5 bg-[#060b18] border border-white/10 rounded-lg text-xs text-white focus:outline-none focus:border-blue-600 uppercase"
+                                        >
+                                            <option value="">Sélectionner un département...</option>
+                                            {departments.map(dept => (
+                                                <option key={dept.id} value={dept.id}>{dept.name}</option>
+                                            ))}
                                         </select>
                                     )}
                                     <button type="submit" className="flex-1 py-2.5 bg-blue-600 text-white rounded text-[10px] font-black uppercase tracking-widest hover:bg-blue-700 active:scale-95 transition-all">

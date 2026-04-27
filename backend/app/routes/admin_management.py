@@ -330,6 +330,59 @@ def delete_department_admin(admin_id):
         return jsonify({'error': str(e)}), 500
 
 
+@admin_management_bp.route('/users', methods=['POST'])
+@require_super_admin
+def create_user():
+    """Crée un nouvel utilisateur (USER ou SUPERVISOR)"""
+    try:
+        data = request.get_json()
+        
+        required_fields = ['name', 'email', 'password', 'role']
+        if not all(field in data for field in required_fields):
+            return jsonify({'error': 'Champs manquants: name, email, password, role requis'}), 400
+        
+        # Valider le rôle
+        valid_roles = ['USER', 'SUPERVISOR']
+        if data['role'] not in valid_roles:
+            return jsonify({'error': f'Rôle invalide. Utilisez {", ".join(valid_roles)}'}), 400
+        
+        connection = get_db_connection()
+        cursor = connection.cursor(dictionary=True)
+        
+        # Vérifier que l'email n'existe pas
+        cursor.execute("SELECT id FROM User WHERE email = %s", (data['email'],))
+        if cursor.fetchone():
+            cursor.close()
+            connection.close()
+            return jsonify({'error': 'Email déjà utilisé'}), 409
+        
+        # Créer l'utilisateur
+        try:
+            import bcrypt
+            password_hash = bcrypt.hashpw(data['password'].encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+        except:
+            password_hash = data['password']  # Fallback si bcrypt n'est pas disponible
+        
+        cursor.execute("""
+            INSERT INTO User (name, email, passwordHash, role, status)
+            VALUES (%s, %s, %s, %s, 'active')
+        """, (data['name'], data['email'], password_hash, data['role']))
+        
+        connection.commit()
+        user_id = cursor.lastrowid
+        cursor.close()
+        connection.close()
+        
+        return jsonify({
+            'message': 'Utilisateur créé avec succès',
+            'id': str(user_id),
+            'role': data['role']
+        }), 201
+    
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 @admin_management_bp.route('/users', methods=['GET'])
 @require_super_admin
 def get_all_users():

@@ -53,17 +53,17 @@ def get_recent_activities():
         cursor.execute("""
             SELECT 
                 sl.id,
-                sl.userId,
+                sl.user_id,
                 sl.action,
                 sl.details,
-                sl.ipAddress,
-                sl.createdAt,
-                u.name as user,
-                e.serial_number as equipment_id
-            FROM SecurityLog sl
-            LEFT JOIN User u ON sl.userId = u.id
-            LEFT JOIN devices e ON sl.details LIKE CONCAT('%', e.id, '%')
-            ORDER BY sl.createdAt DESC
+                sl.ip_address,
+                sl.created_at,
+                u.username as user,
+                d.serial_number as equipment_id
+            FROM security_logs sl
+            LEFT JOIN users u ON sl.user_id = u.id
+            LEFT JOIN devices d ON sl.details LIKE CONCAT('%', d.id, '%')
+            ORDER BY sl.created_at DESC
             LIMIT 10
         """)
         
@@ -73,28 +73,34 @@ def get_recent_activities():
         
         result = []
         for activity in activities:
+            if activity is None:
+                continue
             # Format time relative
             import datetime
-            log_time = activity['createdAt']
+            log_time = activity.get('created_at')
+            if not log_time:
+                log_time = datetime.datetime.now()
             now = datetime.datetime.now()
             diff = (now - log_time).total_seconds()
             
             if diff < 60:
-                time_str = 'Just now'
+                time_str = 'À l\'instant'
             elif diff < 3600:
-                time_str = f"{int(diff/60)} min ago"
+                time_str = f"{int(diff/60)} min"
             elif diff < 86400:
-                time_str = f"{int(diff/3600)} hour ago"
+                time_str = f"{int(diff/3600)}h"
             else:
                 time_str = log_time.strftime('%d/%m/%Y')
             
+            action_type = 'ASSIGNED' if 'assign' in str(activity.get('action', '')).lower() else 'AVAILABLE'
+            
             result.append({
-                'id': str(activity['id']),
-                'item': activity['equipment_id'] or 'Unknown',
-                'user': activity['user'] or 'System',
+                'id': str(activity.get('id', '')),
+                'item': activity.get('equipment_id') or 'Système',
+                'user': (activity.get('user') or 'Système').upper(),
                 'time': time_str,
-                'type': activity['action'],
-                'details': activity['details']
+                'type': action_type,
+                'details': activity.get('details', '')
             })
         
         return jsonify(result), 200
@@ -130,15 +136,18 @@ def get_department_distribution():
         
         result = []
         for dept in departments:
+            if dept is None:
+                continue
             result.append({
-                'name': dept['department'] or 'Non assigné',
-                'count': dept['count'],
-                'percentage': dept['percentage']
+                'name': dept.get('department') or 'Non assigné',
+                'count': dept.get('count', 0) or 0,
+                'percentage': dept.get('percentage', 0) or 0
             })
         
         return jsonify(result), 200
     
     except Exception as e:
+        print(f"Error in get_department_distribution: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 
@@ -162,25 +171,26 @@ def get_dashboard_stats():
         
         stats = cursor.fetchone()
         
-        # Nombre d'administrateurs actifs
+        # Nombre d'utilisateurs actifs
         cursor.execute("""
-            SELECT COUNT(*) as activeAdmins
+            SELECT COUNT(*) as activeUsers
             FROM users
-            WHERE role_id IS NOT NULL AND is_blocked = false
+            WHERE is_blocked = false
         """)
         
-        admins = cursor.fetchone()
+        users = cursor.fetchone()
         
         cursor.close()
         connection.close()
         
         return jsonify({
-            'total': stats['total'] or 0,
-            'available': stats['available'] or 0,
-            'busy': stats['busy'] or 0,
-            'maintenance': stats['maintenance'] or 0,
-            'activeAdmins': admins['activeAdmins'] or 0
+            'total': stats.get('total') or 0 if stats else 0,
+            'available': stats.get('available') or 0 if stats else 0,
+            'busy': stats.get('busy') or 0 if stats else 0,
+            'maintenance': stats.get('maintenance') or 0 if stats else 0,
+            'activeUsers': users.get('activeUsers') or 0 if users else 0
         }), 200
     
     except Exception as e:
+        print(f"Error in get_dashboard_stats: {str(e)}")
         return jsonify({'error': str(e)}), 500

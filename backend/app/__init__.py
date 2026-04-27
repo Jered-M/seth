@@ -9,6 +9,8 @@ from app.routes.department import dept_bp
 from app.routes.user import user_bp
 from app.routes.equipment import equipment_bp
 from app.routes.supervisor import supervisor_bp
+from app.routes.dashboard_stats import dashboard_bp
+from app.routes.admin_management import admin_management_bp
 
 def create_app():
     # Définition du chemin absolu vers le dossier dist du frontend
@@ -41,10 +43,12 @@ def create_app():
     # Register Blueprints
     app.register_blueprint(auth_bp, url_prefix="/api/auth")
     app.register_blueprint(admin_bp, url_prefix="/api/admin")
+    app.register_blueprint(admin_management_bp)
     app.register_blueprint(dept_bp, url_prefix="/api/dept")
     app.register_blueprint(user_bp, url_prefix="/api/user")
     app.register_blueprint(equipment_bp, url_prefix="/api/equipments")
     app.register_blueprint(supervisor_bp, url_prefix="/api/supervisor")
+    app.register_blueprint(dashboard_bp)
 
     # Add GraphQL route
     app.add_url_rule(
@@ -67,12 +71,21 @@ def create_app():
         if path.startswith("api"):
             print(f"DEBUG_404: API request not handled by any blueprint: {path}")
             return jsonify({"error": "API Route not found", "path": path}), 404
-            
-        file_path = os.path.join(app.static_folder, path)
-        if path != "" and os.path.exists(file_path):
-            return send_from_directory(app.static_folder, path)
-        else:
-            # Pour SPA React (React Router)
+        
+        # Essayer de servir le fichier statique s'il existe
+        try:
+            if path != "":
+                file_path = os.path.join(app.static_folder, path)
+                if os.path.exists(file_path) and os.path.isfile(file_path):
+                    return send_from_directory(app.static_folder, path)
+        except Exception as e:
+            print(f"Error serving static file {path}: {e}")
+        
+        # Pour toute route React (SPA), servir index.html
+        try:
             return send_from_directory(app.static_folder, 'index.html')
+        except Exception as e:
+            print(f"ERROR: Could not serve index.html: {e}")
+            return jsonify({"error": "Frontend not found. Please build the frontend first."}), 404
 
     return app
