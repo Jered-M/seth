@@ -10,9 +10,10 @@ import {
     ShieldAlert, 
     Activity,
     Edit2,
-    Trash2
+    Trash2,
+    X
 } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { departmentService } from '../services/departmentService';
 
 // Synchronizing with Sentinel Security Protocols
@@ -42,6 +43,9 @@ export const AdminDashboard = () => {
     const [departments, setDepartments] = useState<Department[]>([]);
     const [loading, setLoading] = useState(true);
     const [showModal, setShowModal] = useState(false);
+    const [newDept, setNewDept] = useState({ name: '' });
+    const [isSubmitting, setIsSubmitting] = useState(false);
+    const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
         const fetchData = async () => {
@@ -76,6 +80,39 @@ export const AdminDashboard = () => {
             </div>
         );
     }
+
+    const handleCreateDepartment = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setIsSubmitting(true);
+        setError(null);
+        
+        try {
+            if (!newDept.name.trim()) {
+                setError('Le nom du département est requis');
+                setIsSubmitting(false);
+                return;
+            }
+            
+            // Créer le département
+            await departmentService.create({ name: newDept.name });
+            
+            // Recharger les données
+            const [statsRes, deptsRes] = await Promise.all([
+                departmentService.getStats(),
+                departmentService.getAll()
+            ]);
+            setStats(statsRes.data);
+            setDepartments(deptsRes.data);
+            
+            // Fermer le modal et réinitialiser
+            setShowModal(false);
+            setNewDept({ name: '' });
+        } catch (err: any) {
+            setError(err.response?.data?.message || 'Erreur lors de la création du département');
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
 
     return (
         <div className="space-y-8 max-w-[1600px] mx-auto">
@@ -233,6 +270,78 @@ export const AdminDashboard = () => {
                     </div>
                 </div>
             </div>
+
+            {/* Modal de création de département */}
+        <AnimatePresence>
+            {showModal && (
+                <motion.div
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center"
+                    onClick={() => setShowModal(false)}
+                >
+                    <motion.div
+                        initial={{ scale: 0.95, opacity: 0 }}
+                        animate={{ scale: 1, opacity: 1 }}
+                        exit={{ scale: 0.95, opacity: 0 }}
+                        onClick={(e) => e.stopPropagation()}
+                        className="pro-card p-8 max-w-md w-full"
+                    >
+                        <div className="flex items-center justify-between mb-6">
+                            <h3 className="text-xl font-black text-white uppercase tracking-widest flex items-center gap-2">
+                                <Plus className="w-5 h-5 text-blue-400" />
+                                Nouveau Nœud
+                            </h3>
+                            <button
+                                onClick={() => setShowModal(false)}
+                                className="p-2 hover:bg-white/10 rounded transition-colors"
+                            >
+                                <X className="w-5 h-5 text-slate-400" />
+                            </button>
+                        </div>
+
+                        {error && (
+                            <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 rounded text-red-400 text-sm">
+                                {error}
+                            </div>
+                        )}
+
+                        <form onSubmit={handleCreateDepartment} className="space-y-4">
+                            <div>
+                                <label className="text-xs font-black text-slate-400 uppercase tracking-widest block mb-2">
+                                    Nom du Département
+                                </label>
+                                <input
+                                    type="text"
+                                    value={newDept.name}
+                                    onChange={(e) => setNewDept({ name: e.target.value })}
+                                    placeholder="Ex: Informatique, Ressources Humaines..."
+                                    className="w-full px-4 py-2.5 bg-[#0a0f1d] border border-white/10 rounded-lg text-white placeholder-slate-600 focus:outline-none focus:border-blue-600 text-sm"
+                                />
+                            </div>
+
+                            <div className="flex gap-3 pt-4">
+                                <button
+                                    type="button"
+                                    onClick={() => setShowModal(false)}
+                                    className="flex-1 py-2.5 border border-white/10 text-slate-300 rounded-lg hover:bg-white/5 transition-colors font-bold text-sm uppercase tracking-widest"
+                                >
+                                    Annuler
+                                </button>
+                                <button
+                                    type="submit"
+                                    disabled={isSubmitting}
+                                    className="flex-1 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-bold text-sm uppercase tracking-widest"
+                                >
+                                    {isSubmitting ? 'Création...' : 'Créer'}
+                                </button>
+                            </div>
+                        </form>
+                    </motion.div>
+                </motion.div>
+            )}
+        </AnimatePresence>
         </div>
     );
 };
