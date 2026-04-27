@@ -4,69 +4,104 @@ from app.models.security_models import User, Role, RoleName, Device, ExitRequest
 from app.services.security_service import SecurityService
 from app.middleware.rbac import dept_admin_required
 from app.database import get_db_connection, db
+from sqlalchemy import inspect
 from datetime import datetime, timedelta
 import json
+import os
+import traceback
 
 dept_bp = Blueprint("dept", __name__)
+
+@dept_bp.route("/health", methods=["GET"])
+def health_check():
+    """Endpoint de diagnostic pour vérifier la connexion à la base de données"""
+    try:
+        from app.database import db
+        
+        # Vérifier le type de base de données
+        db_dialect = db.engine.dialect.name
+        
+        # Essayer une simple requête
+        connection = db.engine.raw_connection()
+        cursor = connection.cursor()
+        
+        if db_dialect == 'sqlite':
+            cursor.execute("SELECT 1")
+        elif db_dialect == 'postgresql':
+            cursor.execute("SELECT 1")
+        else:  # MySQL
+            cursor.execute("SELECT 1")
+        
+        cursor.close()
+        connection.close()
+        
+        # Compter les tables
+        inspector = db.inspect(db.engine)
+        tables = inspector.get_table_names()
+        
+        return jsonify({
+            "status": "healthy",
+            "database": db_dialect,
+            "tables_count": len(tables),
+            "tables": tables[:10]  # Afficher les 10 premières tables
+        }), 200
+    except Exception as e:
+        return jsonify({
+            "status": "unhealthy",
+            "error": str(e),
+            "message": "Database connection failed"
+        }), 500
 
 @dept_bp.route("/all", methods=["GET"])
 def get_all_departments():
     """Récupère tous les départements"""
     try:
-        connection = get_db_connection()
-        cursor = connection.cursor(dictionary=True)
-        
-        cursor.execute("SELECT id, name FROM departments ORDER BY name ASC")
-        departments = cursor.fetchall()
-        cursor.close()
-        connection.close()
+        # Utiliser SQLAlchemy ORM pour une meilleure compatibilité multi-base
+        departments = Department.query.order_by(Department.name).all()
         
         return jsonify([
             {
-                "id": str(dept['id']),
-                "name": dept['name'],
+                "id": str(dept.id),
+                "name": dept.name,
                 "admin_count": 0,
                 "equipment_count": 0,
                 "active_users": 0
             }
-            for dept in (departments or [])
+            for dept in departments
         ]), 200
     except Exception as e:
-        print(f"Error in get_all_departments: {str(e)}")
-        return jsonify({"message": str(e)}), 500
+        error_msg = str(e)
+        traceback_str = traceback.format_exc()
+        print(f"Error in get_all_departments: {error_msg}")
+        print(f"Traceback: {traceback_str}")
+        return jsonify({
+            "message": f"Database error: {error_msg}",
+            "debug": traceback_str if os.getenv("FLASK_ENV") == "development" else None
+        }), 500
 
 @dept_bp.route("/stats", methods=["GET"])
 def get_dept_stats_alias():
     """Récupère les statistiques des départements"""
     try:
-        connection = get_db_connection()
-        cursor = connection.cursor(dictionary=True)
+        from sqlalchemy import func
         
-        cursor.execute("""
-            SELECT 
-                COUNT(DISTINCT d.id) as total_departments,
-                COUNT(DISTINCT u.id) as total_users,
-                COUNT(DISTINCT dev.id) as total_equipment,
-                0 as security_alerts
-            FROM departments d
-            LEFT JOIN users u ON d.id = u.department_id
-            LEFT JOIN devices dev ON d.id = dev.department_id
-        """)
-        
-        stats = cursor.fetchone()
-        cursor.close()
-        connection.close()
+        # Utiliser SQLAlchemy pour compter les données
+        total_departments = Department.query.count()
+        total_users = User.query.count()
+        total_equipment = Device.query.count()
+        security_alerts = 0  # À implémenter si une table d'alertes existe
         
         return jsonify({
             "data": {
-                "total_departments": stats.get('total_departments', 0) if stats else 0,
-                "total_users": stats.get('total_users', 0) if stats else 0,
-                "total_equipment": stats.get('total_equipment', 0) if stats else 0,
-                "security_alerts": stats.get('security_alerts', 0) if stats else 0
+                "total_departments": total_departments,
+                "total_users": total_users,
+                "total_equipment": total_equipment,
+                "security_alerts": security_alerts
             }
         }), 200
     except Exception as e:
         print(f"Error in get_dept_stats_alias: {str(e)}")
+        print(f"Traceback: {traceback.format_exc()}")
         return jsonify({
             "data": {
                 "total_departments": 0,
@@ -86,32 +121,28 @@ def create_department():
         if not name or not str(name).strip():
             return jsonify({"message": "Le nom du département est requis"}), 400
         
-        connection = get_db_connection()
-        cursor = connection.cursor(dictionary=True)
+        name = str(name).strip()
         
         # Vérifier que le département n'existe pas déjà
-        cursor.execute("SELECT id FROM departments WHERE name = %s", (str(name).strip(),))
-        if cursor.fetchone():
-            cursor.close()
-            connection.close()
+        existing = Department.query.filter_by(name=name).first()
+        if existing:
             return jsonify({"message": "Un département avec ce nom existe déjà"}), 409
         
         # Créer le département
-        cursor.execute("INSERT INTO departments (name) VALUES (%s)", (str(name).strip(),))
-        connection.commit()
-        dept_id = cursor.lastrowid
-        
-        cursor.close()
-        connection.close()
+        dept = Department(name=name)
+        db.session.add(dept)
+        db.session.commit()
         
         return jsonify({
-            "id": str(dept_id),
-            "name": str(name).strip(),
+            "id": str(dept.id),
+            "name": dept.name,
             "message": "Département créé avec succès"
         }), 201
     
     except Exception as e:
+        db.session.rollback()
         print(f"Error creating department: {str(e)}")
+        print(f"Traceback: {traceback.format_exc()}")
         return jsonify({"message": f"Erreur lors de la création: {str(e)}"}), 500
 
 
