@@ -12,6 +12,9 @@ import { Login } from './pages/Login'
 import { AdminDepartments } from './pages/AdminDepartments'
 import { DashboardDepartment } from './pages/DashboardDepartment'
 import DepartmentEquipmentMap from './pages/DepartmentEquipmentMap'
+import { SecurityAlerts } from './pages/SecurityAlerts'
+import { SecurityLogs } from './pages/SecurityLogs'
+import { SettingsPage } from './pages/Settings'
 import { useState, useEffect } from 'react'
 import { authService, User } from './services/authService'
 
@@ -78,6 +81,9 @@ function App() {
                     <Route path="my-department" element={<DashboardDepartment />} />
                     <Route path="department-equipment-map" element={<DepartmentEquipmentMap />} />
                     <Route path="guardian" element={<GuardianDashboard />} />
+                    <Route path="alerts" element={<SecurityAlerts />} />
+                    <Route path="logs" element={<SecurityLogs />} />
+                    <Route path="settings" element={<SettingsPage />} />
                 </Route>
             </Routes>
         </AnimatePresence>
