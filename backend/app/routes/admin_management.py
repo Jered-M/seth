@@ -1,60 +1,18 @@
 """
-Routes pour la gestion des administrateurs départementaux
+Routes pour la gestion des administrateurs et utilisateurs
 Fournit les endpoints CRUD pour les administrateurs avec authentification
 """
 
 from flask import Blueprint, request, jsonify
+from flask_jwt_extended import jwt_required, get_jwt_identity, get_jwt
 from datetime import datetime
-from app.database import get_db_connection
-from functools import wraps
-import jwt
+from app.models.security_models import User, Role, RoleName, Department
+from app.database import db
+from app.services.security_service import SecurityService
+import traceback
 import os
 
 admin_management_bp = Blueprint('admin_management', __name__, url_prefix='/api/admin')
-
-# Décorateur pour vérifier le token JWT et l'authentification super-admin
-def require_super_admin(f):
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        token = None
-        auth_header = request.headers.get('Authorization', '')
-        
-        if auth_header.startswith('Bearer '):
-            token = auth_header[7:]
-        
-        if not token:
-            return jsonify({'error': 'Token manquant'}), 401
-        
-        try:
-            # Vérifier le token
-            secret_key = os.getenv('JWT_SECRET_KEY', 'your-secret-key')
-            data = jwt.decode(token, secret_key, algorithms=['HS256'])
-            
-            # Vérifier si l'utilisateur est super-admin
-            connection = get_db_connection()
-            cursor = connection.cursor(dictionary=True)
-            cursor.execute("""
-                SELECT id, role FROM User WHERE id = %s
-            """, (data.get('userId'),))
-            
-            user = cursor.fetchone()
-            cursor.close()
-            connection.close()
-            
-            if not user or user['role'] != 'SUPER_ADMIN':
-                return jsonify({'error': 'Accès non autorisé'}), 403
-            
-            request.user_id = user['id']
-            return f(*args, **kwargs)
-            
-        except jwt.ExpiredSignatureError:
-            return jsonify({'error': 'Token expiré'}), 401
-        except jwt.InvalidTokenError:
-            return jsonify({'error': 'Token invalide'}), 401
-        except Exception as e:
-            return jsonify({'error': str(e)}), 500
-    
-    return decorated_function
 
 
 @admin_management_bp.route('/departments', methods=['GET'])
@@ -331,55 +289,76 @@ def delete_department_admin(admin_id):
 
 
 @admin_management_bp.route('/users', methods=['POST'])
-@require_super_admin
+@jwt_required()
 def create_user():
     """Crée un nouvel utilisateur (USER ou SUPERVISOR)"""
     try:
+        claims = get_jwt()
+        user_id = get_jwt_identity()
+        
+        # Vérifier que c'est un super-admin
+        current_user = User.query.get(user_id)
+        if not current_user or current_user.role.name not in [RoleName.ADMIN_GENERAL, RoleName.ADMIN_DEPT]:
+            return jsonify({'error': 'Accès non autorisé'}), 403
+        
         data = request.get_json()
         
-        required_fields = ['name', 'email', 'password', 'role']
+        required_fields = ['email', 'password', 'role']
         if not all(field in data for field in required_fields):
-            return jsonify({'error': 'Champs manquants: name, email, password, role requis'}), 400
+            return jsonify({'error': 'Champs manquants: email, password, role requis'}), 400
         
         # Valider le rôle
-        valid_roles = ['USER', 'SUPERVISOR']
+        valid_roles = ['USER', 'SUPERVISOR', 'DEPT_ADMIN']
         if data['role'] not in valid_roles:
             return jsonify({'error': f'Rôle invalide. Utilisez {", ".join(valid_roles)}'}), 400
         
-        connection = get_db_connection()
-        cursor = connection.cursor(dictionary=True)
-        
         # Vérifier que l'email n'existe pas
-        cursor.execute("SELECT id FROM User WHERE email = %s", (data['email'],))
-        if cursor.fetchone():
-            cursor.close()
-            connection.close()
+        if User.query.filter_by(email=data['email']).first():
             return jsonify({'error': 'Email déjà utilisé'}), 409
         
+        # Déterminer le nom d'utilisateur
+        username = data.get('name') or data.get('username') or data['email'].split('@')[0]
+        if User.query.filter_by(username=username).first():
+            # Si le nom existe, ajouter un suffixe
+            username = f"{username}_{datetime.utcnow().timestamp()}"
+        
+        # Obtenir le rôle
+        role_name = RoleName.USER if data['role'] == 'USER' else RoleName.SUPERVISOR if data['role'] == 'SUPERVISOR' else RoleName.ADMIN_DEPT
+        role = Role.query.filter_by(name=role_name).first()
+        if not role:
+            return jsonify({'error': f'Rôle {role_name} non trouvé'}), 500
+        
+        # Obtenir le département si fourni
+        department_id = data.get('department_id') or data.get('departmentId')
+        department = None
+        if department_id:
+            department = Department.query.get(department_id)
+            if not department:
+                return jsonify({'error': 'Département non trouvé'}), 404
+        
         # Créer l'utilisateur
-        try:
-            import bcrypt
-            password_hash = bcrypt.hashpw(data['password'].encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
-        except:
-            password_hash = data['password']  # Fallback si bcrypt n'est pas disponible
+        new_user = User(
+            username=username,
+            email=data['email'],
+            password_hash=SecurityService.hash_password(data['password']),
+            role_id=role.id,
+            department_id=department_id if department else None
+        )
         
-        cursor.execute("""
-            INSERT INTO User (name, email, passwordHash, role, status)
-            VALUES (%s, %s, %s, %s, 'active')
-        """, (data['name'], data['email'], password_hash, data['role']))
-        
-        connection.commit()
-        user_id = cursor.lastrowid
-        cursor.close()
-        connection.close()
+        db.session.add(new_user)
+        db.session.commit()
         
         return jsonify({
             'message': 'Utilisateur créé avec succès',
-            'id': str(user_id),
+            'id': str(new_user.id),
+            'email': new_user.email,
             'role': data['role']
         }), 201
     
     except Exception as e:
+        db.session.rollback()
+        print(f"Error creating user: {str(e)}")
+        print(f"Traceback: {traceback.format_exc()}")
         return jsonify({'error': str(e)}), 500
 
 
