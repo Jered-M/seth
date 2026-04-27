@@ -11,6 +11,7 @@ from app.routes.equipment import equipment_bp
 from app.routes.supervisor import supervisor_bp
 from app.routes.dashboard_stats import dashboard_bp
 from app.routes.admin_management import admin_management_bp
+from app.routes.security import security_bp
 
 def create_app():
     # Définition du chemin absolu vers le dossier dist du frontend
@@ -49,6 +50,7 @@ def create_app():
     app.register_blueprint(equipment_bp, url_prefix="/api/equipments")
     app.register_blueprint(supervisor_bp, url_prefix="/api/supervisor")
     app.register_blueprint(dashboard_bp)
+    app.register_blueprint(security_bp, url_prefix="/api/security")
 
     # Add GraphQL route
     app.add_url_rule(

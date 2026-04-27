@@ -72,6 +72,55 @@ def get_security_stats():
         "system_risk_score": risk_score
     }), 200
 
+@security_bp.route("/logs", methods=["GET"])
+@jwt_required()
+def get_security_logs():
+    """Récupère les logs de sécurité filtrés par rôle"""
+    try:
+        user_id = get_jwt_identity()
+        user = User.query.get(user_id)
+        
+        if not user:
+            return jsonify({"message": "Utilisateur non trouvé"}), 404
+        
+        # Récupérer les logs en fonction du rôle
+        if user.role.name == RoleName.DEPT_ADMIN:
+            # DEPT_ADMIN ne voit que les logs de son département
+            logs = SecurityLog.query.filter_by(
+                department_id=user.department_id
+            ).order_by(SecurityLog.created_at.desc()).limit(100).all()
+        elif user.role.name in [RoleName.ADMIN_GENERAL, RoleName.SUPER_ADMIN]:
+            # SUPER_ADMIN voit tous les logs
+            logs = SecurityLog.query.order_by(SecurityLog.created_at.desc()).limit(100).all()
+        else:
+            # Autres rôles: pas d'accès
+            return jsonify({"message": "Accès réservé aux administrateurs"}), 403
+        
+        # Formatter les résultats
+        result = []
+        for log in logs:
+            result.append({
+                'id': str(log.id),
+                'timestamp': log.created_at.isoformat() if log.created_at else None,
+                'action': log.action,
+                'user': log.user.username if log.user_id and log.user else 'System',
+                'ipAddress': log.ip_address or 'N/A',
+                'details': log.details or 'N/A',
+                'status': log.status or 'OK',
+                'userAgent': log.user_agent or 'N/A'
+            })
+        
+        return jsonify(result), 200
+    
+    except Exception as e:
+        import traceback
+        print(f"Error in get_security_logs: {str(e)}")
+        print(f"Traceback: {traceback.format_exc()}")
+        return jsonify({
+            "message": f"Erreur lors du chargement des logs: {str(e)}",
+            "logs": []
+        }), 500
+
 @security_bp.route("/report", methods=["POST"])
 @jwt_required()
 def report_incident():
