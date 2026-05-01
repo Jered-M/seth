@@ -153,24 +153,29 @@ def get_global_stats():
 @jwt_required()
 @super_admin_required
 def get_department_admins():
-    """Retourne la liste de tous les administrateurs de département"""
+    """Retourne la liste de toutes les unités (départements) avec leurs admins respectifs"""
     try:
-        # Récupérer tous les utilisateurs avec rôle DEPT_ADMIN
+        # Récupérer tous les départements
+        departments = Department.query.all()
+        
+        # Récupérer le rôle DEPT_ADMIN pour filtrer les admins
         dept_admin_role = Role.query.filter_by(name=RoleName.DEPT_ADMIN).first()
         
-        admins = User.query.filter_by(role_id=dept_admin_role.id).all()
-        
         result = []
-        for admin in admins:
+        for dept in departments:
+            # Trouver l'admin principal du département (le premier trouvé avec le rôle DEPT_ADMIN)
+            admin = User.query.filter_by(department_id=dept.id, role_id=dept_admin_role.id).first()
+            
             result.append({
-                "id": admin.id,
-                "name": admin.username,
-                "email": admin.email,
-                "department": admin.department.name if admin.department else "Non assigné",
-                "department_id": admin.department_id,
-                "role": admin.role.name,
-                "status": "inactive" if admin.is_blocked else "active",
-                "lastLogin": admin.created_at.isoformat() if admin.created_at else None
+                "id": admin.id if admin else f"dept-{dept.id}",
+                "dept_id": dept.id,
+                "name": admin.username if admin else "Aucun Administrateur",
+                "email": admin.email if admin else "N/A",
+                "department": dept.name,
+                "role": "DEPT_ADMIN",
+                "status": ("inactive" if admin.is_blocked else "active") if admin else "inactive",
+                "lastLogin": admin.created_at.isoformat() if admin and admin.created_at else None,
+                "is_empty": admin is None
             })
         
         return jsonify(result), 200

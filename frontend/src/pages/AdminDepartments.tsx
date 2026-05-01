@@ -35,6 +35,7 @@ interface DepartmentAdmin {
     role: string;
     status: 'active' | 'inactive';
     lastLogin: string;
+    is_empty?: boolean;
 }
 
 export const AdminDepartments = () => {
@@ -84,7 +85,7 @@ export const AdminDepartments = () => {
     const toggleAdminStatus = async (adminId: string) => {
         try {
             const admin = admins.find(a => a.id === adminId);
-            if (!admin) return;
+            if (!admin || admin.is_empty) return;
             const newStatus = admin.status === 'active' ? 'inactive' : 'active';
             await api.put(`/admin/departments/${adminId}/status`, { status: newStatus });
             setAdmins(admins.map(a => a.id === adminId ? { ...a, status: newStatus as 'active' | 'inactive' } : a));
