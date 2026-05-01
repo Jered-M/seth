@@ -17,6 +17,9 @@ import {
     AlertCircle, 
     Loader2,
     ShieldAlert,
+    ShieldCheck,
+    Search,
+    TrendingUp,
     Plus,
     X
 } from 'lucide-react';
