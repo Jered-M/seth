@@ -62,7 +62,7 @@ export const Layout = ({ user, onLogout }: LayoutProps) => {
                 fixed inset-y-0 left-0 z-50 w-64 bg-[#0a0f1d] border-r border-white/5 flex flex-col 
                 transition-transform duration-300 transform 
                 ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} 
-                lg:translate-x-0 lg:static lg:inset-y-auto
+                lg:translate-x-0 lg:sticky lg:top-0 lg:h-screen
             `}>
                 <div className="p-6 border-b border-white/5 bg-[#0d1224] flex items-center justify-between">
                     <div className="flex items-center gap-3">
@@ -112,7 +112,7 @@ export const Layout = ({ user, onLogout }: LayoutProps) => {
             </aside>
 
             {/* Main Content Area */}
-            <main className="flex-1 flex flex-col min-h-screen relative w-full overflow-hidden">
+            <main className="flex-1 flex flex-col min-h-screen relative w-full">
                 <div className="absolute inset-0 tactical-grid opacity-20 pointer-events-none"></div>
 
                 {/* Header */}

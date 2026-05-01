@@ -15,7 +15,8 @@ import {
     MapPin,
     Monitor,
     Plus,
-    Loader2
+    Loader2,
+    X
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import api from '../services/api';
@@ -274,21 +275,21 @@ export const UserManagement = () => {
                 </div>
                 <div className="flex items-center gap-4">
                     <div className="relative group">
-                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500 group-focus-within:text-blue-400" />
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-500 group-focus-within:text-blue-400" />
                         <input
                             type="text"
-                            placeholder="RECHERCHER OPÉRATEUR..."
+                            placeholder="RECHERCHER..."
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
-                            className="pl-10 pr-4 py-2 bg-[#0a0f1d] border border-white/5 rounded text-[10px] font-mono tracking-widest text-slate-300 focus:outline-none focus:border-blue-600/50 w-64 transition-all"
+                            className="pl-9 pr-4 py-2 bg-[#0a0f1d] border border-white/5 rounded text-[9px] font-mono tracking-widest text-slate-400 focus:outline-none focus:border-blue-600/50 w-48 transition-all"
                         />
                     </div>
                     <button
-                        onClick={() => setShowAddForm(!showAddForm)}
+                        onClick={() => setShowAddForm(true)}
                         className="flex items-center gap-2 px-6 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-all shadow-lg shadow-blue-900/20 text-[10px] font-black uppercase tracking-widest"
                     >
                         <UserPlus className="w-3.5 h-3.5" />
-                        {showAddForm ? 'ANNULER' : 'AJOUTER OPÉRATEUR'}
+                        AJOUTER OPÉRATEUR
                     </button>
                 </div>
             </div>
@@ -314,92 +315,139 @@ export const UserManagement = () => {
                 ))}
             </div>
 
+            {/* Modal - User Form */}
             <AnimatePresence>
                 {showAddForm && (
-                    <motion.div
-                        initial={{ opacity: 0, scale: 0.95, height: 0 }}
-                        animate={{ opacity: 1, scale: 1, height: 'auto' }}
-                        exit={{ opacity: 0, scale: 0.95, height: 0 }}
-                        className="overflow-hidden"
-                    >
-                        <div className="pro-card p-8 border-blue-600/20 mb-8 bg-blue-600/[0.02]">
-                            <h3 className="text-sm font-black text-white uppercase tracking-widest mb-6 flex items-center gap-2">
-                                <Plus className="w-4 h-4 text-blue-400" />
-                                Nouveau Dossier Opérateur
-                            </h3>
-                            {formError && (
-                                <div className="mb-6 p-3 bg-red-500/10 border border-red-500/20 rounded text-red-400 text-[10px] font-bold uppercase tracking-tight">
-                                    {formError}
+                    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 lg:p-8">
+                        <motion.div
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            onClick={() => setShowAddForm(false)}
+                            className="absolute inset-0 bg-black/90 backdrop-blur-md"
+                        />
+                        <motion.div
+                            initial={{ opacity: 0, scale: 0.9, y: 30 }}
+                            animate={{ opacity: 1, scale: 1, y: 0 }}
+                            exit={{ opacity: 0, scale: 0.9, y: 30 }}
+                            className="relative w-full max-w-xl bg-[#0a0f1d] border border-white/10 rounded-2xl shadow-[0_0_50px_rgba(37,99,235,0.15)] overflow-hidden"
+                        >
+                            <div className="p-6 border-b border-white/5 bg-white/[0.03] flex items-center justify-between">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-8 h-8 bg-blue-600/20 rounded-lg flex items-center justify-center">
+                                        <UserPlus className="w-4 h-4 text-blue-500" />
+                                    </div>
+                                    <h3 className="text-xs font-black text-white uppercase tracking-[0.2em]">
+                                        Nouveau Dossier Opérateur
+                                    </h3>
                                 </div>
-                            )}
-                            <form onSubmit={handleCreateUser} className="grid grid-cols-1 md:grid-cols-5 gap-4 items-end">
-                                <div className="space-y-1.5">
-                                    <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Nom de Code</label>
-                                    <input
-                                        type="text"
-                                        required
-                                        value={newUser.name}
-                                        onChange={e => setNewUser({ ...newUser, name: e.target.value })}
-                                        className="w-full px-4 py-2.5 bg-[#060b18] border border-white/10 rounded-lg text-xs text-white focus:outline-none focus:border-blue-600"
-                                        placeholder="NOM COMPLET..."
-                                    />
-                                </div>
-                                <div className="space-y-1.5">
-                                    <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Canal Email</label>
-                                    <input
-                                        type="email"
-                                        required
-                                        value={newUser.email}
-                                        onChange={e => setNewUser({ ...newUser, email: e.target.value })}
-                                        className="w-full px-4 py-2.5 bg-[#060b18] border border-white/10 rounded-lg text-xs text-white focus:outline-none focus:border-blue-600"
-                                        placeholder="EMAIL@SYSTEM..."
-                                    />
-                                </div>
-                                <div className="space-y-1.5">
-                                    <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Clé d'Accès</label>
-                                    <input
-                                        type="password"
-                                        required
-                                        value={newUser.password}
-                                        onChange={e => setNewUser({ ...newUser, password: e.target.value })}
-                                        className="w-full px-4 py-2.5 bg-[#060b18] border border-white/10 rounded-lg text-xs text-white focus:outline-none focus:border-blue-600"
-                                        placeholder="CLÉ SÉCURISÉE..."
-                                    />
-                                </div>
-                                <div className="flex flex-col sm:flex-row gap-3 col-span-full md:col-span-2">
-                                    {!isSupervisor && !isDeptAdmin && (
-                                        <select
-                                            title="Rôle utilisateur"
-                                            value={newUser.role}
-                                            onChange={e => setNewUser({ ...newUser, role: e.target.value, departmentId: '' })}
-                                            className="flex-1 px-4 py-2.5 bg-[#060b18] border border-white/10 rounded-lg text-xs text-white focus:outline-none focus:border-blue-600 uppercase"
-                                        >
-                                            <option value="USER">Opérateur</option>
-                                            <option value="DEPT_ADMIN">Admin Dept</option>
-                                            <option value="SUPERVISOR">Superviseur</option>
-                                        </select>
-                                    )}
-                                    {newUser.role === 'DEPT_ADMIN' && departments.length > 0 && (
-                                        <select
-                                            title="Département"
+                                <button 
+                                    onClick={() => setShowAddForm(false)}
+                                    className="p-2 hover:bg-white/5 rounded-lg transition-colors text-slate-500 hover:text-white"
+                                >
+                                    <X className="w-4 h-4" />
+                                </button>
+                            </div>
+
+                            <form onSubmit={handleCreateUser} className="p-8 space-y-6">
+                                {formError && (
+                                    <div className="p-3 bg-red-500/10 border border-red-500/20 rounded text-red-400 text-[10px] font-bold uppercase tracking-tight">
+                                        {formError}
+                                    </div>
+                                )}
+
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                    <div className="space-y-1.5">
+                                        <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Nom de Code</label>
+                                        <input
+                                            type="text"
                                             required
-                                            value={newUser.departmentId}
-                                            onChange={e => setNewUser({ ...newUser, departmentId: e.target.value })}
-                                            className="flex-1 px-4 py-2.5 bg-[#060b18] border border-white/10 rounded-lg text-xs text-white focus:outline-none focus:border-blue-600 uppercase"
-                                        >
-                                            <option value="">Sélectionner un département...</option>
-                                            {departments.map(dept => (
-                                                <option key={dept.id} value={dept.id}>{dept.name}</option>
-                                            ))}
-                                        </select>
+                                            value={newUser.name}
+                                            onChange={e => setNewUser({ ...newUser, name: e.target.value })}
+                                            className="w-full px-4 py-2.5 bg-[#060b18] border border-white/10 rounded-lg text-xs text-white focus:outline-none focus:border-blue-600"
+                                            placeholder="NOM COMPLET..."
+                                        />
+                                    </div>
+                                    <div className="space-y-1.5">
+                                        <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Canal Email</label>
+                                        <input
+                                            type="email"
+                                            required
+                                            value={newUser.email}
+                                            onChange={e => setNewUser({ ...newUser, email: e.target.value })}
+                                            className="w-full px-4 py-2.5 bg-[#060b18] border border-white/10 rounded-lg text-xs text-white focus:outline-none focus:border-blue-600"
+                                            placeholder="EMAIL@SYSTEM..."
+                                        />
+                                    </div>
+                                    <div className="space-y-1.5">
+                                        <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Clé d'Accès</label>
+                                        <input
+                                            type="password"
+                                            required
+                                            value={newUser.password}
+                                            onChange={e => setNewUser({ ...newUser, password: e.target.value })}
+                                            className="w-full px-4 py-2.5 bg-[#060b18] border border-white/10 rounded-lg text-xs text-white focus:outline-none focus:border-blue-600"
+                                            placeholder="CLÉ SÉCURISÉE..."
+                                        />
+                                    </div>
+                                    <div className="space-y-1.5">
+                                        <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Rôle / Accréditation</label>
+                                        {!isSupervisor && !isDeptAdmin && (
+                                            <select
+                                                title="Rôle utilisateur"
+                                                value={newUser.role}
+                                                onChange={e => setNewUser({ ...newUser, role: e.target.value, departmentId: '' })}
+                                                className="w-full px-4 py-2.5 bg-[#060b18] border border-white/10 rounded-lg text-xs text-white focus:outline-none focus:border-blue-600 uppercase"
+                                            >
+                                                <option value="USER">Opérateur</option>
+                                                <option value="DEPT_ADMIN">Admin Dept</option>
+                                                <option value="SUPERVISOR">Superviseur</option>
+                                            </select>
+                                        )}
+                                        {(isSupervisor || isDeptAdmin) && (
+                                            <div className="px-4 py-2.5 bg-white/5 border border-white/5 rounded-lg text-xs text-slate-400 uppercase font-bold">
+                                                Opérateur
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {newUser.role === 'DEPT_ADMIN' && departments.length > 0 && (
+                                        <div className="space-y-1.5 col-span-full">
+                                            <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Département Assigné</label>
+                                            <select
+                                                title="Département"
+                                                required
+                                                value={newUser.departmentId}
+                                                onChange={e => setNewUser({ ...newUser, departmentId: e.target.value })}
+                                                className="w-full px-4 py-2.5 bg-[#060b18] border border-white/10 rounded-lg text-xs text-white focus:outline-none focus:border-blue-600 uppercase"
+                                            >
+                                                <option value="">Sélectionner un département...</option>
+                                                {departments.map(dept => (
+                                                    <option key={dept.id} value={dept.id}>{dept.name}</option>
+                                                ))}
+                                            </select>
+                                        </div>
                                     )}
-                                    <button type="submit" className="flex-1 py-2.5 bg-blue-600 text-white rounded text-[10px] font-black uppercase tracking-widest hover:bg-blue-700 active:scale-95 transition-all shadow-lg shadow-blue-600/20">
+                                </div>
+
+                                <div className="flex gap-4 pt-4">
+                                    <button 
+                                        type="button"
+                                        onClick={() => setShowAddForm(false)}
+                                        className="flex-1 py-3 border border-white/10 text-slate-400 rounded text-[10px] font-black uppercase tracking-widest hover:bg-white/5 transition-all"
+                                    >
+                                        ANNULER
+                                    </button>
+                                    <button 
+                                        type="submit" 
+                                        className="flex-[2] py-3 bg-blue-600 text-white rounded text-[10px] font-black uppercase tracking-widest hover:bg-blue-700 active:scale-95 transition-all shadow-lg shadow-blue-600/20"
+                                    >
                                         INSTALLER LE DOSSIER
                                     </button>
                                 </div>
                             </form>
-                        </div>
-                    </motion.div>
+                        </motion.div>
+                    </div>
                 )}
             </AnimatePresence>
 
