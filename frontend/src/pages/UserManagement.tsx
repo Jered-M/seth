@@ -182,11 +182,12 @@ export const UserManagement = () => {
                         setFormError('Veuillez sélectionner un département pour créer un admin de département');
                         return;
                     }
-                    // Créer un admin de département
-                    await api.post('/admin/departments', {
-                        name: newUser.name,
+                    // Créer un admin de département (Correct route: /admin/admins)
+                    await api.post('/admin/admins', {
+                        username: newUser.name,
                         email: newUser.email,
-                        departmentId: parseInt(newUser.departmentId)
+                        password: newUser.password,
+                        dept_id: newUser.departmentId
                     });
                 } else {
                     // Créer un utilisateur standard
