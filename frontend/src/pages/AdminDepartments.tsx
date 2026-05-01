@@ -25,6 +25,8 @@ import {
 } from 'lucide-react';
 import { AnimatePresence } from 'framer-motion';
 
+import api from '../services/api';
+
 interface DepartmentAdmin {
     id: string;
     name: string;
@@ -34,8 +36,6 @@ interface DepartmentAdmin {
     status: 'active' | 'inactive';
     lastLogin: string;
 }
-
-const API_BASE_URL = '/api';
 
 export const AdminDepartments = () => {
     const [admins, setAdmins] = useState<DepartmentAdmin[]>([]);
@@ -51,55 +51,33 @@ export const AdminDepartments = () => {
     const handleAddDepartment = async (e: React.FormEvent) => {
         e.preventDefault();
         try {
-            const token = localStorage.getItem('access_token');
-            const response = await fetch(`${API_BASE_URL}/admin/departments`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`
-                },
-                body: JSON.stringify({ name: newDeptName }),
-                credentials: 'include'
-            });
-
-            if (!response.ok) {
-                const data = await response.json();
-                throw new Error(data.message || 'Erreur lors de la création');
-            }
-
+            await api.post('/admin/departments', { name: newDeptName });
             setNewDeptName('');
             setShowDeptModal(false);
-            // On rafraîchit pour voir si un nouvel admin peut être assigné (optionnel)
-            window.location.reload(); 
+            refreshAll(); 
         } catch (err: any) {
-            setError(err.message);
+            setError(err.response?.data?.message || err.message || 'Erreur lors de la création');
         }
     };
 
-    useEffect(() => {
-        const fetchAdmins = async () => {
-            try {
-                setLoading(true);
-                setError(null);
-                const token = localStorage.getItem('access_token');
-                const headers: HeadersInit = { 'Content-Type': 'application/json' };
-                if (token) headers['Authorization'] = `Bearer ${token}`;
-                
-                const response = await fetch(`${API_BASE_URL}/admin/departments`, {
-                    method: 'GET',
-                    headers,
-                    credentials: 'include'
-                });
+    const fetchAdmins = async () => {
+        try {
+            setLoading(true);
+            setError(null);
+            const response = await api.get('/admin/departments');
+            setAdmins(Array.isArray(response.data) ? response.data : response.data.data || []);
+        } catch (err: any) {
+            setError(err.response?.data?.message || err.message || 'Erreur de chargement');
+        } finally {
+            setLoading(false);
+        }
+    };
 
-                if (!response.ok) throw new Error(`Erreur ${response.status}`);
-                const data = await response.json();
-                setAdmins(Array.isArray(data) ? data : data.data || []);
-            } catch (err) {
-                setError(err instanceof Error ? err.message : 'Erreur inconnue');
-            } finally {
-                setLoading(false);
-            }
-        };
+    const refreshAll = () => {
+        fetchAdmins();
+    };
+
+    useEffect(() => {
         fetchAdmins();
     }, []);
 
@@ -108,19 +86,10 @@ export const AdminDepartments = () => {
             const admin = admins.find(a => a.id === adminId);
             if (!admin) return;
             const newStatus = admin.status === 'active' ? 'inactive' : 'active';
-            const response = await fetch(`${API_BASE_URL}/admin/departments/${adminId}/status`, {
-                method: 'PUT',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${localStorage.getItem('access_token')}`
-                },
-                body: JSON.stringify({ status: newStatus })
-            });
-
-            if (!response.ok) throw new Error('Erreur de mise à jour');
+            await api.put(`/admin/departments/${adminId}/status`, { status: newStatus });
             setAdmins(admins.map(a => a.id === adminId ? { ...a, status: newStatus as 'active' | 'inactive' } : a));
-        } catch (err) {
-            setError('Erreur lors de la mise à jour du statut');
+        } catch (err: any) {
+            setError(err.response?.data?.message || 'Erreur lors de la mise à jour du statut');
         }
     };
 
