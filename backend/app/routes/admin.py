@@ -2,7 +2,7 @@ from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from sqlalchemy import func
 from app.models.security_models import User, Role, RoleName, Department, SecurityLog, AuthorizedZone, Device, SecurityAlert, ExitRequest
-from app.services.security_service import SecurityService
+# from app.services.security_service import SecurityService
 from app.middleware.rbac import super_admin_required
 from app.database import db
 
@@ -28,6 +28,7 @@ def create_department():
 @jwt_required()
 @super_admin_required
 def create_dept_admin():
+    from app.services.security_service import SecurityService
     data = request.json
     username = data.get("username")
     email = data.get("email")
@@ -181,6 +182,7 @@ def get_department_admins():
 @super_admin_required
 def update_admin_status(admin_id):
     """Met à jour le statut (active/inactive) d'un administrateur de département"""
+    from app.services.security_service import SecurityService
     try:
         data = request.json
         new_status = data.get("status")
@@ -250,6 +252,7 @@ def get_all_users():
 @super_admin_required
 def create_user():
     """Crée un nouvel utilisateur"""
+    from app.services.security_service import SecurityService
     try:
         data = request.json
         username = data.get("name")
@@ -309,6 +312,7 @@ def create_user():
 @super_admin_required
 def update_user_role(user_id):
     """Met à jour le rôle d'un utilisateur"""
+    from app.services.security_service import SecurityService
     try:
         data = request.json
         new_role_name = data.get("role")
@@ -349,6 +353,7 @@ def update_user_role(user_id):
 @super_admin_required
 def update_user_activation(user_id):
     """Active ou désactive un compte utilisateur (validation super admin)."""
+    from app.services.security_service import SecurityService
     try:
         data = request.json or {}
         active = data.get("active")
@@ -389,6 +394,7 @@ def update_user_activation(user_id):
 @super_admin_required
 def delete_user(user_id):
     """Supprime un utilisateur du système"""
+    from app.services.security_service import SecurityService
     try:
         user = User.query.get(user_id)
         if not user:

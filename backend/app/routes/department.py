@@ -1,7 +1,8 @@
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt, get_jwt_identity
 from app.models.security_models import User, Role, RoleName, Device, ExitRequest, SecurityLog, Department
-from app.services.security_service import SecurityService
+# Remove top-level SecurityService to avoid circular imports
+# from app.services.security_service import SecurityService
 from app.middleware.rbac import dept_admin_required
 from app.database import get_db_connection, db
 from sqlalchemy import inspect
@@ -70,13 +71,15 @@ def get_all_departments():
             for dept in departments
         ]), 200
     except Exception as e:
+        import traceback
         error_msg = str(e)
         traceback_str = traceback.format_exc()
-        print(f"Error in get_all_departments: {error_msg}")
+        print(f"CRITICAL ERROR in get_all_departments: {error_msg}")
         print(f"Traceback: {traceback_str}")
         return jsonify({
-            "message": f"Database error: {error_msg}",
-            "debug": traceback_str if os.getenv("FLASK_ENV") == "development" else None
+            "message": f"Database error in get_all_departments: {error_msg}",
+            "error": error_msg,
+            "traceback": traceback_str
         }), 500
 
 @dept_bp.route("/stats", methods=["GET"])
@@ -114,6 +117,7 @@ def get_dept_stats_alias():
 @dept_bp.route("/create", methods=["POST"])
 def create_department():
     """Créer un nouveau département"""
+    from app.services.security_service import SecurityService
     try:
         data = request.get_json()
         name = data.get("name") if data else None
@@ -133,6 +137,20 @@ def create_department():
         db.session.add(dept)
         db.session.commit()
         
+        # Audit Log
+        try:
+            creator_id = get_jwt_identity()
+            SecurityService.log_event(
+                creator_id,
+                "DEPARTMENT_CREATE",
+                f"Création du département {name}",
+                request.remote_addr,
+                request.headers.get("User-Agent"),
+                status="SUCCESS"
+            )
+        except:
+            pass
+
         return jsonify({
             "id": str(dept.id),
             "name": dept.name,
@@ -172,6 +190,7 @@ def get_dept_users():
 @jwt_required()
 @dept_admin_required
 def create_dept_user():
+    from app.services.security_service import SecurityService
     data = request.json or {}
     username = data.get("username") or data.get("name")
     email = data.get("email")

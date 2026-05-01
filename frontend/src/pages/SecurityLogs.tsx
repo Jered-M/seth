@@ -185,7 +185,14 @@ export const SecurityLogs = () => {
                                                 {log.ipAddress || 'N/A'}
                                             </td>
                                             <td className="px-6 py-4 text-xs text-slate-400 max-w-xs truncate">
-                                                {log.details || 'N/A'}
+                                                {(() => {
+                                                    try {
+                                                        const d = JSON.parse(log.details || '{}');
+                                                        return d.message || log.details || 'N/A';
+                                                    } catch {
+                                                        return log.details || 'N/A';
+                                                    }
+                                                })()}
                                             </td>
                                             <td className="px-6 py-4 text-center">
                                                 <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase ${

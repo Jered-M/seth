@@ -10,7 +10,6 @@ from app.routes.user import user_bp
 from app.routes.equipment import equipment_bp
 from app.routes.supervisor import supervisor_bp
 from app.routes.dashboard_stats import dashboard_bp
-from app.routes.admin_management import admin_management_bp
 from app.routes.security import security_bp
 
 def create_app():
@@ -21,7 +20,7 @@ def create_app():
     
     print(f"DEBUG: Serving frontend from: {dist_path}")
     
-    app = Flask(__name__, static_folder=dist_path, static_url_path='/')
+    app = Flask(__name__, static_folder=dist_path, static_url_path='/_static')
     
     # Configuration CORS améliorée
     # Autorise les requêtes avec credentials en reflétant l'origine de la requête
@@ -44,7 +43,6 @@ def create_app():
     # Register Blueprints
     app.register_blueprint(auth_bp, url_prefix="/api/auth")
     app.register_blueprint(admin_bp, url_prefix="/api/admin")
-    app.register_blueprint(admin_management_bp)
     app.register_blueprint(dept_bp, url_prefix="/api/dept")
     app.register_blueprint(user_bp, url_prefix="/api/user")
     app.register_blueprint(equipment_bp, url_prefix="/api/equipments")
@@ -52,6 +50,18 @@ def create_app():
     app.register_blueprint(dashboard_bp)
     app.register_blueprint(security_bp, url_prefix="/api/security")
 
+    # Add diagnostic route to list all routes
+    @app.route("/api/routes")
+    def list_routes():
+        routes = []
+        for rule in app.url_map.iter_rules():
+            routes.append({
+                "endpoint": rule.endpoint,
+                "methods": list(rule.methods),
+                "rule": str(rule)
+            })
+        return jsonify(routes)
+    
     # Add GraphQL route
     app.add_url_rule(
         "/api/graphql",

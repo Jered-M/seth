@@ -366,7 +366,7 @@ export const UserManagement = () => {
                                         placeholder="CLÉ SÉCURISÉE..."
                                     />
                                 </div>
-                                <div className="flex gap-3 col-span-full md:col-span-2">
+                                <div className="flex flex-col sm:flex-row gap-3 col-span-full md:col-span-2">
                                     {!isSupervisor && !isDeptAdmin && (
                                         <select
                                             title="Rôle utilisateur"
@@ -393,8 +393,8 @@ export const UserManagement = () => {
                                             ))}
                                         </select>
                                     )}
-                                    <button type="submit" className="flex-1 py-2.5 bg-blue-600 text-white rounded text-[10px] font-black uppercase tracking-widest hover:bg-blue-700 active:scale-95 transition-all">
-                                        INITIALISER
+                                    <button type="submit" className="flex-1 py-2.5 bg-blue-600 text-white rounded text-[10px] font-black uppercase tracking-widest hover:bg-blue-700 active:scale-95 transition-all shadow-lg shadow-blue-600/20">
+                                        INSTALLER LE DOSSIER
                                     </button>
                                 </div>
                             </form>
