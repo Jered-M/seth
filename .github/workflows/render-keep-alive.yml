@@ -1,0 +1,29 @@
+# Ping périodique pour éviter l'arrêt du service Render (inactivité ~15 min).
+# Configurer le secret GitHub : RENDER_APP_URL = https://votre-app.onrender.com
+name: Render keep-alive
+
+on:
+  schedule:
+    - cron: "*/14 * * * *"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping /api/ping
+        env:
+          RENDER_URL: ${{ secrets.RENDER_APP_URL }}
+        run: |
+          if [ -z "$RENDER_URL" ]; then
+            echo "Secret RENDER_APP_URL non défini — ajoutez l'URL Render dans GitHub → Settings → Secrets."
+            exit 0
+          fi
+          URL="${RENDER_URL%/}/api/ping"
+          echo "Ping: $URL"
+          code=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 90 "$URL" || echo "000")
+          echo "HTTP $code"
+          if [ "$code" != "200" ]; then
+            echo "Échec du ping (cold start possible, réessayer au prochain cron)."
+            exit 1
+          fi

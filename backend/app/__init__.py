@@ -83,6 +83,11 @@ def create_app():
         except Exception as exc:
             print(f"[WARN] sync seed au demarrage: {exc}")
 
+    @app.route("/api/ping")
+    def ping():
+        """Keep-alive Render — réponse rapide sans accès DB."""
+        return jsonify({"status": "ok", "service": "seth"}), 200
+
     # Add diagnostic route to list all routes
     @app.route("/api/routes")
     def list_routes():
