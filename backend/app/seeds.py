@@ -1,6 +1,88 @@
+"""Données et fonctions de seed pour SetH.
+
+- seed_data()              → seed complet (rôles, départements, comptes, devices)
+- sync_seed_accounts_for_dev() → sync rapide au démarrage (run.py / create_app)
+- SEED_ACCOUNT_EMAILS / SEED_PASSWORDS → constantes partagées (auth, scripts)
+
+Ne pas lancer ce fichier directement (ModuleNotFoundError: app).
+Utiliser : python seed.py   (depuis le dossier backend/)
+"""
 from app.models.security_models import Role, RoleName, User, Department
 from app.services.security_service import SecurityService
 from app.database import db
+
+SEED_ACCOUNT_EMAILS = (
+    "superadmin@seth.com",
+    "admin-it@seth.com",
+    "dept_admin@test.com",
+    "user@seth.com",
+    "security@seth.com",
+)
+
+SEED_PASSWORDS = {
+    "superadmin@seth.com": "SuperSecret123!",
+    "admin-it@seth.com": "AdminIT123!",
+    "dept_admin@test.com": "Test1234!",
+    "user@seth.com": "User123!",
+    "security@seth.com": "Security123!",
+}
+
+
+def ensure_seed_accounts_unlocked() -> int:
+    """Réactive les comptes seed — sans réécrire le hash à chaque démarrage (évite l'instabilité Supabase)."""
+    fixed = 0
+    for email in SEED_ACCOUNT_EMAILS:
+        account = User.query.filter_by(email=email).first()
+        if not account:
+            continue
+        changed = False
+        if account.is_blocked or account.failed_attempts or account.mfa_enabled:
+            account.is_blocked = False
+            account.failed_attempts = 0
+            account.mfa_enabled = False
+            changed = True
+        if changed:
+            fixed += 1
+    if fixed:
+        db.session.commit()
+    return fixed
+
+
+def sync_seed_accounts_for_dev() -> None:
+    """Crée l'agent sécurité si absent + resynchronise tous les mots de passe seed."""
+    if not User.query.filter_by(email="security@seth.com").first():
+        agent_role = Role.query.filter_by(name=RoleName.SECURITY_AGENT).first()
+        it_dept = Department.query.filter_by(name="Informatique").first()
+        if agent_role:
+            db.session.add(
+                User(
+                    username="agent_securite",
+                    email="security@seth.com",
+                    password_hash=SecurityService.hash_password(SEED_PASSWORDS["security@seth.com"]),
+                    role_id=agent_role.id,
+                    department_id=it_dept.id if it_dept else None,
+                    mfa_enabled=False,
+                    is_blocked=False,
+                )
+            )
+            print("✅ Agent sécurité créé: security@seth.com / Security123!")
+
+    for email in SEED_ACCOUNT_EMAILS:
+        account = User.query.filter_by(email=email).first()
+        pwd = SEED_PASSWORDS.get(email)
+        if not account or not pwd:
+            continue
+        account.password_hash = SecurityService.hash_password(pwd)
+        account.is_blocked = False
+        account.failed_attempts = 0
+        account.mfa_enabled = False
+        if account.role_id is None and email == "security@seth.com":
+            agent_role = Role.query.filter_by(name=RoleName.SECURITY_AGENT).first()
+            if agent_role:
+                account.role_id = agent_role.id
+
+    db.session.commit()
+
 
 def seed_data():
     # Roles
@@ -105,6 +187,30 @@ def seed_data():
         db.session.add(user)
         db.session.commit()
         print("✅ Utilisateur régulier créé: user@seth.com / User123! (Informatique)")
+    else:
+        print("✅ Utilisateur régulier déjà existant: user@seth.com")
+
+    # Agent de sécurité (poste de contrôle sorties matériel)
+    if not User.query.filter_by(email="security@seth.com").first():
+        agent_role = Role.query.filter_by(name=RoleName.SECURITY_AGENT).first()
+        it_dept = Department.query.filter_by(name="Informatique").first()
+        if not agent_role:
+            print("⚠️  Rôle SECURITY_AGENT absent — création agent sécurité impossible")
+        else:
+            agent = User(
+                username="agent_securite",
+                email="security@seth.com",
+                password_hash=SecurityService.hash_password("Security123!"),
+                role_id=agent_role.id,
+                department_id=it_dept.id if it_dept else None,
+                mfa_enabled=False,
+                is_blocked=False,
+            )
+            db.session.add(agent)
+            db.session.commit()
+            print("✅ Agent sécurité créé: security@seth.com / Security123!")
+    else:
+        print("✅ Agent sécurité déjà existant: security@seth.com / Security123!")
 
     # TEST DEVICES WITHOUT HARDCODED GPS - FOR REAL TRACKING
     print("\n🌍 Seeding real Devices per department...")
@@ -169,4 +275,23 @@ def seed_data():
 
     db.session.commit()
     print(f"✅ {created_count} test GPS devices seeded across departments!")
+
+    ensure_seed_accounts_unlocked()
+    sync_seed_accounts_for_dev()
+    print("✅ Comptes seed débloqués et mots de passe synchronisés")
+    _print_seed_accounts_summary()
+
+
+def _print_seed_accounts_summary() -> None:
+    """Récapitulatif visible de tous les comptes seed après seed/sync."""
+    print("\n📋 Comptes seed disponibles :")
+    for email in SEED_ACCOUNT_EMAILS:
+        account = User.query.filter_by(email=email).first()
+        pwd = SEED_PASSWORDS.get(email, "?")
+        if not account:
+            print(f"   ❌ {email} — ABSENT (relancer seed ou run.py)")
+            continue
+        role_name = account.role.name if account.role else "SANS_RÔLE"
+        status = "bloqué" if account.is_blocked else "OK"
+        print(f"   ✅ {email} / {pwd} — rôle={role_name} ({status})")
 

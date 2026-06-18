@@ -73,7 +73,30 @@ export const Equipments = () => {
                 ? 'GARDIEN'
                 : currentUser?.role
 
-    const canAssignEquipment = ['SUPER_ADMIN', 'DEPT_ADMIN', 'SUPERVISOR'].includes(normalizedRole || '')
+    const canAssignEquipment = normalizedRole === 'DEPT_ADMIN'
+
+    const canAssignThisEquipment = (item: { departmentId?: string | null }) => {
+        if (!canAssignEquipment) return false
+        const deptId = currentUser?.department_id
+        if (!deptId) return false
+        return item.departmentId === deptId
+    }
+
+    const openAssignModal = async (equipmentId: string) => {
+        setAssigningEquipment(equipmentId)
+        setShowAssignModal(true)
+        setFormError(null)
+        setUsers([])
+        setSelectedUserId('')
+        try {
+            const list = await equipmentService.getAssignableUsers(equipmentId)
+            setUsers(list)
+        } catch (err: unknown) {
+            const ax = err as { response?: { data?: { message?: string } } }
+            setFormError(ax.response?.data?.message || "Impossible de charger les utilisateurs assignables")
+            setUsers([])
+        }
+    }
 
     const handleAssignEquipment = async () => {
         if (!assigningEquipment || !selectedUserId) {
@@ -134,6 +157,7 @@ export const Equipments = () => {
     const filteredEquipments = equipments.filter(e => 
         e.serialNumber?.toLowerCase().includes(searchTerm.toLowerCase()) ||
         e.type?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        e.department?.toLowerCase().includes(searchTerm.toLowerCase()) ||
         e.assignedTo?.toLowerCase().includes(searchTerm.toLowerCase())
     )
 
@@ -206,6 +230,7 @@ export const Equipments = () => {
                             <tr className="bg-[#0d1224] border-b border-white/5">
                                 <th className="px-6 py-4 text-left text-[9px] font-black text-slate-500 uppercase tracking-widest">Matériel</th>
                                 <th className="px-6 py-4 text-left text-[9px] font-black text-slate-500 uppercase tracking-widest">Type</th>
+                                <th className="px-6 py-4 text-left text-[9px] font-black text-slate-500 uppercase tracking-widest">Département</th>
                                 <th className="px-6 py-4 text-left text-[9px] font-black text-slate-500 uppercase tracking-widest">Localisation</th>
                                 <th className="px-6 py-4 text-left text-[9px] font-black text-slate-500 uppercase tracking-widest">Opérateur</th>
                                 <th className="px-6 py-4 text-left text-[9px] font-black text-slate-500 uppercase tracking-widest">Statut</th>
@@ -228,6 +253,9 @@ export const Equipments = () => {
                                     </td>
                                     <td className="px-6 py-4">
                                         <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">{item.type}</span>
+                                    </td>
+                                    <td className="px-6 py-4">
+                                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{item.department || '—'}</span>
                                     </td>
                                     <td className="px-6 py-4">
                                         <div className="flex items-center gap-2">
@@ -254,13 +282,9 @@ export const Equipments = () => {
                                     </td>
                                     <td className="px-6 py-4">
                                         <div className="flex items-center gap-2 justify-end">
-                                            {canAssignEquipment && (
+                                            {canAssignThisEquipment(item) && (
                                                 <button
-                                                    onClick={() => {
-                                                        setAssigningEquipment(item.id)
-                                                        setShowAssignModal(true)
-                                                        equipmentService.getAssignableUsers(item.id).then(setUsers)
-                                                    }}
+                                                    onClick={() => openAssignModal(item.id)}
                                                     className="p-1.5 text-blue-400 hover:bg-blue-600/10 rounded transition-all border border-transparent hover:border-blue-600/20"
                                                     title="Assigner"
                                                 >
@@ -299,6 +323,10 @@ export const Equipments = () => {
                             
                             <div className="grid grid-cols-2 gap-4">
                                 <div>
+                                    <p className="text-[9px] font-black text-slate-600 uppercase tracking-widest mb-1">Département</p>
+                                    <p className="text-[10px] font-bold text-slate-400 uppercase">{item.department || '—'}</p>
+                                </div>
+                                <div>
                                     <p className="text-[9px] font-black text-slate-600 uppercase tracking-widest mb-1">Localisation</p>
                                     <p className="text-[10px] font-bold text-slate-400 uppercase italic">{item.location || 'N/A'}</p>
                                 </div>
@@ -309,13 +337,9 @@ export const Equipments = () => {
                             </div>
 
                             <div className="pt-2 flex gap-2">
-                                {canAssignEquipment && (
+                                {canAssignThisEquipment(item) && (
                                     <button
-                                        onClick={() => {
-                                            setAssigningEquipment(item.id)
-                                            setShowAssignModal(true)
-                                            equipmentService.getAssignableUsers(item.id).then(setUsers)
-                                        }}
+                                        onClick={() => openAssignModal(item.id)}
                                         className="flex-1 py-2 bg-blue-600 shadow-lg shadow-blue-900/20 text-white rounded text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2"
                                     >
                                         <UserPlus className="w-3.5 h-3.5" />

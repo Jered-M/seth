@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion'
 import api from '../services/api';
+import { refreshTrackedLocations } from '../services/locationService';
 import {
     Monitor,
     Clock,
@@ -43,35 +44,12 @@ export const UserDashboard = () => {
     const [equipment, setEquipment] = useState<Equipment[]>([]);
     const [loading, setLoading] = useState(true);
 
-    const currentUser = (() => {
+    const pushCurrentPosition = async () => {
         try {
-            const raw = localStorage.getItem('user');
-            return raw ? JSON.parse(raw) : null;
-        } catch {
-            return null;
+            await refreshTrackedLocations();
+        } catch (err) {
+            console.error('Erreur sync GPS:', err);
         }
-    })();
-
-    const pushCurrentPosition = async (deviceId: string) => {
-        if (!navigator.geolocation) return;
-
-        navigator.geolocation.getCurrentPosition(
-            async (position) => {
-                try {
-                    await api.post('/user/devices/position', {
-                        device_id: deviceId,
-                        lat: position.coords.latitude,
-                        lng: position.coords.longitude,
-                    });
-                } catch (err) {
-                    console.error('Erreur sync GPS:', err);
-                }
-            },
-            () => {
-                // Permission refusée ou indisponible: on ne bloque pas l'UI.
-            },
-            { enableHighAccuracy: true, timeout: 8000, maximumAge: 30000 }
-        );
     };
 
     useEffect(() => {
@@ -80,21 +58,14 @@ export const UserDashboard = () => {
 
     const fetchUserData = async () => {
         try {
-            const equipRes = await api.get('/equipments/');
+            await pushCurrentPosition();
+
+            const equipRes = await api.get('/user/devices/with-location');
             const equipData = Array.isArray(equipRes.data) ? equipRes.data : [];
 
             setEquipment(equipData);
 
-            const myAssignedDevices = equipData.filter((e: Equipment) =>
-                e.status === 'ASSIGNED' &&
-                (e.assignedTo === currentUser?.name || e.assigned_to === currentUser?.name)
-            );
-
-            for (const device of myAssignedDevices) {
-                pushCurrentPosition(device.id);
-            }
-
-            const assigned = (equipData as Equipment[]).filter((e: Equipment) => e.status === 'ASSIGNED').length;
+            const assigned = equipData.length;
             setStats({
                 equipment_assigned: assigned,
                 recent_requests: 0,

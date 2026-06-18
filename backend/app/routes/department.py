@@ -55,21 +55,34 @@ def health_check():
 
 @dept_bp.route("/all", methods=["GET"])
 def get_all_departments():
-    """Récupère tous les départements"""
+    """Récupère tous les départements avec statistiques."""
     try:
-        # Utiliser SQLAlchemy ORM pour une meilleure compatibilité multi-base
         departments = Department.query.order_by(Department.name).all()
-        
-        return jsonify([
-            {
+        dept_admin_role = Role.query.filter_by(name=RoleName.DEPT_ADMIN).first()
+
+        result = []
+        for dept in departments:
+            admin_count = 0
+            if dept_admin_role:
+                admin_count = User.query.filter_by(
+                    department_id=dept.id,
+                    role_id=dept_admin_role.id,
+                ).count()
+            equipment_count = Device.query.filter_by(department_id=dept.id).count()
+            active_users = User.query.filter_by(
+                department_id=dept.id,
+                is_blocked=False,
+            ).count()
+
+            result.append({
                 "id": str(dept.id),
                 "name": dept.name,
-                "admin_count": 0,
-                "equipment_count": 0,
-                "active_users": 0
-            }
-            for dept in departments
-        ]), 200
+                "admin_count": admin_count,
+                "equipment_count": equipment_count,
+                "active_users": active_users,
+            })
+
+        return jsonify(result), 200
     except Exception as e:
         import traceback
         error_msg = str(e)
@@ -92,15 +105,23 @@ def get_dept_stats_alias():
         total_departments = Department.query.count()
         total_users = User.query.count()
         total_equipment = Device.query.count()
-        security_alerts = 0  # À implémenter si une table d'alertes existe
-        
+        try:
+            from app.models.security_models import SecurityAlert
+            security_alerts = SecurityAlert.query.filter_by(is_resolved=False).count()
+        except Exception:
+            security_alerts = 0
+
         return jsonify({
+            "total_departments": total_departments,
+            "total_users": total_users,
+            "total_equipment": total_equipment,
+            "security_alerts": security_alerts,
             "data": {
                 "total_departments": total_departments,
                 "total_users": total_users,
                 "total_equipment": total_equipment,
-                "security_alerts": security_alerts
-            }
+                "security_alerts": security_alerts,
+            },
         }), 200
     except Exception as e:
         print(f"Error in get_dept_stats_alias: {str(e)}")
@@ -146,7 +167,8 @@ def create_department():
                 f"Création du département {name}",
                 request.remote_addr,
                 request.headers.get("User-Agent"),
-                status="SUCCESS"
+                status="SUCCESS",
+                department_id=str(dept.id),
             )
         except:
             pass
@@ -244,7 +266,8 @@ def create_dept_user():
                 f"Utilisateur {user.id} ({email}) créé en attente d'activation super admin",
                 request.remote_addr,
                 request.headers.get("User-Agent"),
-                status="PENDING_APPROVAL"
+                status="PENDING_APPROVAL",
+                department_id=dept_id,
             )
 
             return jsonify({

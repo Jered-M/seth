@@ -1,7 +1,13 @@
 import os
+from datetime import timedelta
 from flask import Flask, send_from_directory, jsonify
 from flask_cors import CORS
 from flask_jwt_extended import JWTManager
+from app.logging_config import setup_logging
+import logging
+
+setup_logging()
+log = logging.getLogger("seth.app")
 from app.database import init_db
 from app.routes.auth import auth_bp
 from app.routes.admin import admin_bp
@@ -11,6 +17,8 @@ from app.routes.equipment import equipment_bp
 from app.routes.supervisor import supervisor_bp
 from app.routes.dashboard_stats import dashboard_bp
 from app.routes.security import security_bp
+from app.routes.internal_requests import requests_bp
+from app.routes.security_workflow import security_workflow_bp
 
 def create_app():
     # Définition du chemin absolu vers le dossier dist du frontend
@@ -32,7 +40,20 @@ def create_app():
     
     # JWT Config
     app.config["JWT_SECRET_KEY"] = os.getenv("JWT_SECRET_KEY", "super-secret")
+    app.config["JWT_ACCESS_TOKEN_EXPIRES"] = timedelta(hours=24)
     jwt = JWTManager(app)
+
+    @jwt.expired_token_loader
+    def _expired_token(_jwt_header, _jwt_payload):
+        return jsonify({"message": "Session expirée", "code": "TOKEN_EXPIRED"}), 401
+
+    @jwt.invalid_token_loader
+    def _invalid_token(_err):
+        return jsonify({"message": "Session invalide — reconnectez-vous", "code": "INVALID_TOKEN"}), 401
+
+    @jwt.unauthorized_loader
+    def _missing_token(_err):
+        return jsonify({"message": "Authentification requise", "code": "AUTH_REQUIRED"}), 401
     
     # Initialize Database
     init_db(app)
@@ -49,6 +70,18 @@ def create_app():
     app.register_blueprint(supervisor_bp, url_prefix="/api/supervisor")
     app.register_blueprint(dashboard_bp)
     app.register_blueprint(security_bp, url_prefix="/api/security")
+    app.register_blueprint(requests_bp, url_prefix="/api/requests")
+    app.register_blueprint(security_workflow_bp, url_prefix="/api/security")
+
+    with app.app_context():
+        try:
+            from app.seeds import sync_seed_accounts_for_dev
+            sync_seed_accounts_for_dev()
+            req_count = len([r for r in app.url_map.iter_rules() if r.rule.startswith("/api/requests")])
+            print(f"[SetH v2] Comptes seed OK | security@seth.com / Security123! | routes requests: {req_count}")
+            log.info("Startup OK — %s routes /api/requests", req_count)
+        except Exception as exc:
+            print(f"[WARN] sync seed au demarrage: {exc}")
 
     # Add diagnostic route to list all routes
     @app.route("/api/routes")

@@ -8,6 +8,21 @@ from app.database import db
 
 admin_bp = Blueprint("admin", __name__)
 
+
+def _list_unassigned_dept_admins():
+    dept_admin_role = Role.query.filter_by(name=RoleName.DEPT_ADMIN).first()
+    if not dept_admin_role:
+        return []
+    admins = (
+        User.query.filter(
+            User.role_id == dept_admin_role.id,
+            User.department_id.is_(None),
+        )
+        .order_by(User.username.asc())
+        .all()
+    )
+    return [{"id": admin.id, "name": admin.username, "email": admin.email} for admin in admins]
+
 @admin_bp.route("/departments", methods=["POST"])
 @jwt_required()
 @super_admin_required
@@ -29,29 +44,76 @@ def create_department():
 @super_admin_required
 def create_dept_admin():
     from app.services.security_service import SecurityService
-    data = request.json
+    data = request.json or {}
+    admin_id = data.get("admin_id") or data.get("adminId")
+    dept_id = data.get("dept_id") or data.get("departmentId")
+
+    if admin_id and dept_id:
+        dept = Department.query.get(dept_id)
+        if not dept:
+            return jsonify({"message": "Département non trouvé"}), 404
+
+        dept_admin_role = Role.query.filter_by(name=RoleName.DEPT_ADMIN).first()
+        existing = User.query.filter_by(department_id=dept.id, role_id=dept_admin_role.id).first()
+        if existing:
+            return jsonify({"message": "Ce département a déjà un administrateur"}), 409
+
+        admin = User.query.get(admin_id)
+        if not admin or not admin.role or admin.role.name != RoleName.DEPT_ADMIN:
+            return jsonify({"message": "Administrateur de département introuvable"}), 404
+        if admin.department_id:
+            return jsonify({"message": "Cet administrateur est déjà rattaché à un département"}), 409
+
+        admin.department_id = dept.id
+        admin.is_blocked = True
+        db.session.commit()
+
+        SecurityService.log_event(
+            get_jwt_identity(),
+            "ADMIN_ASSIGN",
+            f"Administrateur {admin.email} assigné au département {dept.name}",
+            request.remote_addr,
+            request.headers.get("User-Agent", ""),
+            status="SUCCESS",
+            department_id=dept.id,
+        )
+
+        return jsonify({
+            "message": "Administrateur assigné — activez le nœud pour autoriser l'accès",
+            "id": admin.id,
+            "status": "inactive",
+        }), 200
+
     username = data.get("username")
     email = data.get("email")
     password = data.get("password")
-    dept_id = data.get("dept_id")
-    
-    dept = Department.query.get(dept_id)
-    if not dept:
-        return jsonify({"message": "Département non trouvé"}), 404
-        
+
+    if dept_id:
+        dept = Department.query.get(dept_id)
+        if not dept:
+            return jsonify({"message": "Département non trouvé"}), 404
+    else:
+        dept = None
+
     role = Role.query.filter_by(name=RoleName.DEPT_ADMIN).first()
-    
+    if not role:
+        return jsonify({"message": "Rôle administrateur département introuvable"}), 500
+
     user = User(
         username=username,
         email=email,
         password_hash=SecurityService.hash_password(password),
         role_id=role.id,
-        department_id=dept.id
+        department_id=dept.id if dept else None,
+        is_blocked=True if not dept else False,
     )
     db.session.add(user)
     db.session.commit()
-    
-    return jsonify({"message": "Admin de département créé", "id": user.id}), 201
+
+    return jsonify({
+        "message": "Admin de département créé" + ("" if dept else " (sans département — à assigner)"),
+        "id": user.id,
+    }), 201
 
 @admin_bp.route("/system-stats", methods=["GET"])
 @jwt_required()
@@ -72,7 +134,7 @@ def get_system_stats():
             total_equipment = 0
             
         try:
-            security_alerts = SecurityAlert.query.count()
+            security_alerts = SecurityAlert.query.filter_by(is_resolved=False).count()
         except:
             security_alerts = 0
         
@@ -177,8 +239,11 @@ def get_department_admins():
                 "lastLogin": admin.created_at.isoformat() if admin and admin.created_at else None,
                 "is_empty": admin is None
             })
-        
-        return jsonify(result), 200
+
+        return jsonify({
+            "departments": result,
+            "unassignedAdmins": _list_unassigned_dept_admins(),
+        }), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -189,42 +254,226 @@ def update_admin_status(admin_id):
     """Met à jour le statut (active/inactive) d'un administrateur de département"""
     from app.services.security_service import SecurityService
     try:
-        data = request.json
+        data = request.json or {}
         new_status = data.get("status")
-        
+
         if new_status not in ["active", "inactive"]:
             return jsonify({"error": "Statut invalide. Doit être 'active' ou 'inactive'"}), 400
-        
+
         admin = User.query.get(admin_id)
         if not admin:
             return jsonify({"error": "Administrateur non trouvé"}), 404
-        
-        # Vérifier que c'est bien un DEPT_ADMIN
-        if admin.role.name != RoleName.DEPT_ADMIN:
+
+        if not admin.role or admin.role.name != RoleName.DEPT_ADMIN:
             return jsonify({"error": "Utilisateur n'est pas un administrateur de département"}), 400
-        
-        # Mettre à jour le statut (is_blocked = True pour inactive, False pour active)
+
         admin.is_blocked = (new_status == "inactive")
         db.session.commit()
-        
-        # Enregistrer l'action
+
         current_user_id = get_jwt_identity()
         SecurityService.log_event(
-            current_user_id, 
+            current_user_id,
             "ADMIN_STATUS_CHANGE",
-            f"Statut de {admin.email} changé à {new_status}",
+            f"Statut de {admin.email} changé à {new_status} (NODE_{'ACTIVE' if new_status == 'active' else 'LOCKED'})",
             request.remote_addr,
-            request.headers.get("User-Agent"),
-            status="SUCCESS"
+            request.headers.get("User-Agent", ""),
+            status="SUCCESS",
+            department_id=admin.department_id,
         )
-        
+
         return jsonify({
             "message": f"Statut de l'administrateur mis à jour à {new_status}",
             "id": admin.id,
-            "status": new_status
+            "status": new_status,
         }), 200
     except Exception as e:
+        db.session.rollback()
         return jsonify({"error": str(e)}), 500
+
+
+@admin_bp.route("/departments/<admin_id>", methods=["PUT"])
+@jwt_required()
+@super_admin_required
+def update_department_admin(admin_id):
+    """Met à jour les informations d'un administrateur de département."""
+    from app.services.security_service import SecurityService
+
+    admin = User.query.get(admin_id)
+    if not admin or not admin.role or admin.role.name != RoleName.DEPT_ADMIN:
+        return jsonify({"error": "Administrateur de département introuvable"}), 404
+
+    data = request.json or {}
+    username = (data.get("username") or data.get("name") or "").strip()
+    email = (data.get("email") or "").strip().lower()
+    password = data.get("password")
+
+    if username:
+        existing = User.query.filter(User.username == username, User.id != admin.id).first()
+        if existing:
+            return jsonify({"error": "Ce nom d'utilisateur existe déjà"}), 409
+        admin.username = username
+
+    if email:
+        existing = User.query.filter(User.email == email, User.id != admin.id).first()
+        if existing:
+            return jsonify({"error": "Cet email existe déjà"}), 409
+        admin.email = email
+
+    if password:
+        admin.password_hash = SecurityService.hash_password(password)
+
+    db.session.commit()
+
+    SecurityService.log_event(
+        get_jwt_identity(),
+        "ADMIN_UPDATE",
+        f"Mise à jour administrateur {admin.email}",
+        request.remote_addr,
+        request.headers.get("User-Agent", ""),
+        status="SUCCESS",
+        department_id=admin.department_id,
+    )
+
+    return jsonify({
+        "message": "Administrateur mis à jour",
+        "id": admin.id,
+        "name": admin.username,
+        "email": admin.email,
+    }), 200
+
+
+@admin_bp.route("/dept-admins/unassigned", methods=["GET"])
+@jwt_required()
+@super_admin_required
+def list_unassigned_dept_admins():
+    """Chefs de département sans unité assignée."""
+    return jsonify(_list_unassigned_dept_admins()), 200
+
+
+@admin_bp.route("/departments/<dept_id>/admin", methods=["POST"])
+@jwt_required()
+@super_admin_required
+def assign_department_admin(dept_id):
+    """Assigne un administrateur existant ou crée un nouveau compte pour le département."""
+    from app.services.security_service import SecurityService
+
+    dept = Department.query.get(dept_id)
+    if not dept:
+        return jsonify({"error": "Département introuvable"}), 404
+
+    dept_admin_role = Role.query.filter_by(name=RoleName.DEPT_ADMIN).first()
+    if not dept_admin_role:
+        return jsonify({"error": "Rôle administrateur département introuvable"}), 500
+
+    existing_admin = User.query.filter_by(department_id=dept.id, role_id=dept_admin_role.id).first()
+    if existing_admin:
+        return jsonify({"error": "Ce département a déjà un administrateur"}), 409
+
+    data = request.json or {}
+    admin_id = data.get("adminId") or data.get("admin_id")
+
+    if admin_id:
+        admin = User.query.get(admin_id)
+        if not admin or not admin.role or admin.role.name != RoleName.DEPT_ADMIN:
+            return jsonify({"error": "Administrateur de département introuvable"}), 404
+        if admin.department_id:
+            return jsonify({"error": "Cet administrateur est déjà rattaché à un département"}), 409
+
+        admin.department_id = dept.id
+        admin.is_blocked = True
+        db.session.commit()
+
+        SecurityService.log_event(
+            get_jwt_identity(),
+            "ADMIN_ASSIGN",
+            f"Administrateur {admin.email} assigné au département {dept.name}",
+            request.remote_addr,
+            request.headers.get("User-Agent", ""),
+            status="SUCCESS",
+            department_id=dept.id,
+        )
+
+        return jsonify({
+            "message": "Administrateur assigné — activez le nœud pour autoriser l'accès",
+            "id": admin.id,
+            "name": admin.username,
+            "email": admin.email,
+            "status": "inactive",
+        }), 200
+
+    username = (data.get("username") or data.get("name") or "").strip()
+    email = (data.get("email") or "").strip().lower()
+    password = data.get("password") or "SetPassword123!"
+
+    if not username or not email:
+        return jsonify({"error": "Sélectionnez un administrateur ou fournissez nom et email"}), 400
+
+    if User.query.filter((User.email == email) | (User.username == username)).first():
+        return jsonify({"error": "Email ou nom d'utilisateur déjà utilisé"}), 409
+
+    admin = User(
+        username=username,
+        email=email,
+        password_hash=SecurityService.hash_password(password),
+        role_id=dept_admin_role.id,
+        department_id=dept.id,
+        is_blocked=True,
+    )
+    db.session.add(admin)
+    db.session.commit()
+
+    SecurityService.log_event(
+        get_jwt_identity(),
+        "ADMIN_ASSIGN",
+        f"Administrateur {email} assigné au département {dept.name}",
+        request.remote_addr,
+        request.headers.get("User-Agent", ""),
+        status="SUCCESS",
+        department_id=dept.id,
+    )
+
+    return jsonify({
+        "message": "Administrateur assigné — activez le nœud pour autoriser l'accès",
+        "id": admin.id,
+        "status": "inactive",
+    }), 201
+
+
+@admin_bp.route("/departments/<dept_id>", methods=["DELETE"])
+@jwt_required()
+@super_admin_required
+def delete_department(dept_id):
+    """Supprime un département vide (sans utilisateurs ni équipements)."""
+    from app.services.security_service import SecurityService
+
+    dept = Department.query.get(dept_id)
+    if not dept:
+        return jsonify({"error": "Département introuvable"}), 404
+
+    user_count = User.query.filter_by(department_id=dept.id).count()
+    device_count = Device.query.filter_by(department_id=dept.id).count()
+
+    if user_count > 0 or device_count > 0:
+        return jsonify({
+            "error": "Impossible de supprimer : des utilisateurs ou équipements sont encore rattachés",
+            "users": user_count,
+            "devices": device_count,
+        }), 409
+
+    dept_name = dept.name
+    db.session.delete(dept)
+    db.session.commit()
+
+    SecurityService.log_event(
+        get_jwt_identity(),
+        "DEPARTMENT_DELETE",
+        f"Suppression du département {dept_name}",
+        request.remote_addr,
+        request.headers.get("User-Agent", ""),
+        status="SUCCESS",
+    )
+
+    return jsonify({"message": f"Département {dept_name} supprimé"}), 200
 
 @admin_bp.route("/users", methods=["GET"])
 @jwt_required()
@@ -316,40 +565,66 @@ def create_user():
 @jwt_required()
 @super_admin_required
 def update_user_role(user_id):
-    """Met à jour le rôle d'un utilisateur"""
+    """Met à jour le rôle et/ou le département d'un utilisateur."""
     from app.services.security_service import SecurityService
     try:
-        data = request.json
+        data = request.json or {}
         new_role_name = data.get("role")
-        
+        department_id = data.get("department_id")
+
         user = User.query.get(user_id)
         if not user:
             return jsonify({"error": "Utilisateur non trouvé"}), 404
-        
-        role = Role.query.filter_by(name=new_role_name).first()
-        if not role:
-            return jsonify({"error": f"Rôle '{new_role_name}' non trouvé"}), 400
-        
-        user.role_id = role.id
+
+        if new_role_name:
+            role = Role.query.filter_by(name=new_role_name).first()
+            if not role:
+                return jsonify({"error": f"Rôle '{new_role_name}' non trouvé"}), 400
+            user.role_id = role.id
+
+        if department_id is not None:
+            dept = Department.query.get(department_id)
+            if not dept:
+                return jsonify({"error": "Département non trouvé"}), 404
+
+            dept_admin_role = Role.query.filter_by(name=RoleName.DEPT_ADMIN).first()
+            if dept_admin_role:
+                existing = User.query.filter(
+                    User.department_id == dept.id,
+                    User.role_id == dept_admin_role.id,
+                    User.id != user.id,
+                ).first()
+                if existing:
+                    return jsonify({"error": "Ce département a déjà un administrateur"}), 409
+
+            user.department_id = department_id
+            user.is_blocked = True
+
+        if not new_role_name and department_id is None:
+            return jsonify({"error": "Rôle ou department_id requis"}), 400
+
         db.session.commit()
-        
-        # Enregistrer l'action
+
         current_user_id = get_jwt_identity()
         SecurityService.log_event(
             current_user_id,
-            "ROLE_CHANGED",
-            f"Rôle de {user.email} changé à {new_role_name}",
+            "ADMIN_ASSIGN" if department_id else "ROLE_CHANGED",
+            f"Utilisateur {user.email} — rôle={new_role_name or user.role.name}, dept={department_id or user.department_id}",
             request.remote_addr,
-            request.headers.get("User-Agent"),
-            status="SUCCESS"
+            request.headers.get("User-Agent", ""),
+            status="SUCCESS",
+            department_id=department_id or user.department_id,
         )
-        
+
         return jsonify({
-            "message": f"Rôle de l'utilisateur mis à jour à {new_role_name}",
+            "message": "Utilisateur mis à jour",
             "id": user.id,
-            "role": new_role_name
+            "role": user.role.name if user.role else None,
+            "department_id": user.department_id,
+            "status": "inactive" if user.is_blocked else "active",
         }), 200
     except Exception as e:
+        db.session.rollback()
         return jsonify({"error": str(e)}), 500
 
 

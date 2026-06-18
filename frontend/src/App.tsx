@@ -2,9 +2,10 @@ import { Routes, Route, Navigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Layout } from './layouts/Layout'
 import { Dashboard } from './pages/Dashboard'
-import { AdminDashboard } from './pages/AdminDashboard'
-import { GuardianDashboard } from './pages/GuardianDashboard'
-import { UserDashboard } from './pages/UserDashboard'
+import { UserDashboardPage } from './pages/dashboards/UserDashboardPage'
+import { DeptAdminDashboardPage } from './pages/dashboards/DeptAdminDashboardPage'
+import { SuperAdminDashboardPage } from './pages/dashboards/SuperAdminDashboardPage'
+import { SecurityAgentDashboardPage } from './pages/dashboards/SecurityAgentDashboardPage'
 import { UserManagement } from './pages/UserManagement'
 import { Equipments } from './pages/Equipments'
 import { TrackingMap } from './pages/TrackingMap'
@@ -15,32 +16,38 @@ import DepartmentEquipmentMap from './pages/DepartmentEquipmentMap'
 import { SecurityAlerts } from './pages/SecurityAlerts'
 import { SecurityLogs } from './pages/SecurityLogs'
 import { SettingsPage } from './pages/Settings'
+import { RoleRoute } from './components/RoleRoute'
 import { useState, useEffect } from 'react'
 import { authService, User } from './services/authService'
 
 function App() {
-    const [user, setUser] = useState<User | null>(null)
-    const [loading, setLoading] = useState(true)
+    const [user, setUser] = useState<User | null>(() =>
+        authService.isAuthenticated() ? authService.getCurrentUser() : null
+    );
+    const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        // Vérifier si un utilisateur est déjà connecté
-        const currentUser = authService.getCurrentUser()
-        if (currentUser) {
-            setUser(currentUser)
+        if (authService.isAuthenticated()) {
+            setUser((prev) => prev ?? authService.getCurrentUser());
+        } else {
+            authService.logout();
+            setUser(null);
         }
-        setLoading(false)
-    }, [])
+        setLoading(false);
+    }, []);
 
     const handleLogin = (userData: User) => {
-        setUser(userData)
-    }
+        setUser(userData);
+    };
 
     const handleLogout = () => {
-        authService.logout()
-        setUser(null)
-    }
+        authService.logout();
+        setUser(null);
+    };
 
-    const role = (user as User | null)?.role;
+    const sessionUser = user ?? (authService.isAuthenticated() ? authService.getCurrentUser() : null);
+    const isLoggedIn = Boolean(sessionUser && authService.isAuthenticated());
+    const role = sessionUser?.role;
     const normalizedRole = role === 'ADMIN_GENERAL'
         ? 'SUPER_ADMIN'
         : role === 'ADMIN_DEPT'
@@ -65,25 +72,64 @@ function App() {
             <Routes>
                 <Route path="/login" element={<Login onLogin={handleLogin} />} />
 
-                <Route path="/" element={user ? <Layout user={user} onLogout={handleLogout} /> : <Navigate to="/login" />}>
+                <Route path="/" element={isLoggedIn && sessionUser ? <Layout user={sessionUser} onLogout={handleLogout} /> : <Navigate to="/login" />}>
                     <Route index element={
-                        normalizedRole === 'SUPER_ADMIN' ? <AdminDashboard /> :
-                        normalizedRole === 'DEPT_ADMIN' ? <DashboardDepartment /> :
-                        normalizedRole === 'SUPERVISOR' ? <UserManagement /> :
-                        normalizedRole === 'GARDIEN' ? <GuardianDashboard /> :
-                        normalizedRole === 'USER' ? <UserDashboard /> :
+                        normalizedRole === 'SUPER_ADMIN' ? <SuperAdminDashboardPage /> :
+                        normalizedRole === 'DEPT_ADMIN' ? <DeptAdminDashboardPage /> :
+                        normalizedRole === 'GARDIEN' ? <SecurityAgentDashboardPage /> :
+                        normalizedRole === 'USER' ? <UserDashboardPage /> :
                         <Dashboard />
                     } />
-                    <Route path="equipments" element={<Equipments />} />
-                    <Route path="tracking" element={<TrackingMap />} />
-                    <Route path="users" element={<UserManagement />} />
-                    <Route path="admin-departments" element={<AdminDepartments />} />
-                    <Route path="my-department" element={<DashboardDepartment />} />
-                    <Route path="department-equipment-map" element={<DepartmentEquipmentMap />} />
-                    <Route path="guardian" element={<GuardianDashboard />} />
-                    <Route path="alerts" element={<SecurityAlerts />} />
-                    <Route path="logs" element={<SecurityLogs />} />
-                    <Route path="settings" element={<SettingsPage />} />
+                    <Route path="equipments" element={
+                        <RoleRoute allowed={['SUPER_ADMIN', 'DEPT_ADMIN', 'SUPERVISOR']}>
+                            <Equipments />
+                        </RoleRoute>
+                    } />
+                    <Route path="tracking" element={
+                        <RoleRoute allowed={['SUPER_ADMIN', 'DEPT_ADMIN', 'SUPERVISOR', 'GARDIEN']}>
+                            <TrackingMap />
+                        </RoleRoute>
+                    } />
+                    <Route path="users" element={
+                        <RoleRoute allowed={['SUPER_ADMIN', 'DEPT_ADMIN']}>
+                            <UserManagement />
+                        </RoleRoute>
+                    } />
+                    <Route path="admin-departments" element={
+                        <RoleRoute allowed={['SUPER_ADMIN']}>
+                            <AdminDepartments />
+                        </RoleRoute>
+                    } />
+                    <Route path="my-department" element={
+                        <RoleRoute allowed={['DEPT_ADMIN', 'SUPERVISOR']}>
+                            <DashboardDepartment />
+                        </RoleRoute>
+                    } />
+                    <Route path="department-equipment-map" element={
+                        <RoleRoute allowed={['SUPER_ADMIN', 'DEPT_ADMIN', 'SUPERVISOR']}>
+                            <DepartmentEquipmentMap />
+                        </RoleRoute>
+                    } />
+                    <Route path="guardian" element={
+                        <RoleRoute allowed={['GARDIEN', 'DEPT_ADMIN']}>
+                            <SecurityAgentDashboardPage />
+                        </RoleRoute>
+                    } />
+                    <Route path="alerts" element={
+                        <RoleRoute allowed={['SUPER_ADMIN', 'DEPT_ADMIN', 'SUPERVISOR']}>
+                            <SecurityAlerts />
+                        </RoleRoute>
+                    } />
+                    <Route path="logs" element={
+                        <RoleRoute allowed={['SUPER_ADMIN', 'DEPT_ADMIN']}>
+                            <SecurityLogs />
+                        </RoleRoute>
+                    } />
+                    <Route path="settings" element={
+                        <RoleRoute allowed={['SUPER_ADMIN', 'DEPT_ADMIN']}>
+                            <SettingsPage />
+                        </RoleRoute>
+                    } />
                 </Route>
             </Routes>
         </AnimatePresence>

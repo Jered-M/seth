@@ -8,6 +8,16 @@ import json
 
 user_bp = Blueprint("user", __name__)
 
+
+def _apply_device_location(device: Device, lat, lng, accuracy=None):
+    device.last_known_lat = float(lat)
+    device.last_known_lng = float(lng)
+    if accuracy is not None:
+        new_accuracy = float(accuracy)
+        if device.last_known_accuracy is None or new_accuracy <= device.last_known_accuracy:
+            device.last_known_accuracy = new_accuracy
+    device.location_updated_at = datetime.utcnow()
+
 @user_bp.route("/devices/register", methods=["POST"])
 @jwt_required()
 def register_device():
@@ -79,13 +89,16 @@ def update_position():
     device_id = data.get("device_id")
     lat = data.get("lat")
     lng = data.get("lng")
+    accuracy = data.get("accuracy")
+
+    if lat is None or lng is None:
+        return jsonify({"message": "Coordonnées manquantes"}), 400
     
     device = Device.query.get(device_id)
     if not device or device.user_id != user_id:
         return jsonify({"message": "Équipement non autorisé"}), 403
         
-    device.last_known_lat = lat
-    device.last_known_lng = lng
+    _apply_device_location(device, lat, lng, accuracy)
     
     # Vérification géofencing
     is_safe = SecurityService.check_geofencing(device_id)
@@ -118,6 +131,8 @@ def get_devices_with_location():
             "status": device.status,
             "latitude": device.last_known_lat,
             "longitude": device.last_known_lng,
+            "accuracy": device.last_known_accuracy,
+            "location_updated_at": device.location_updated_at.isoformat() if device.location_updated_at else None,
             "department": device.department.name if device.department else None,
             "assigned_to": user.username if device.user_id else None
         })
@@ -146,6 +161,8 @@ def get_department_devices_map():
             "status": device.status,
             "latitude": device.last_known_lat,
             "longitude": device.last_known_lng,
+            "accuracy": device.last_known_accuracy,
+            "location_updated_at": device.location_updated_at.isoformat() if device.location_updated_at else None,
             "department": device.department.name if device.department else None,
             "assigned_to": device.user.username if device.user else "Non assigné"
         })

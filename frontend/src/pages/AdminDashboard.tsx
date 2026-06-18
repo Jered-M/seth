@@ -95,8 +95,6 @@ export const AdminDashboard = () => {
             
             // Créer le département
             await departmentService.create({ name: newDept.name });
-            
-            // Recharger les données
             const [statsRes, deptsRes] = await Promise.all([
                 departmentService.getStats(),
                 departmentService.getAll()

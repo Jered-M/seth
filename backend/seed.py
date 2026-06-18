@@ -1,3 +1,9 @@
+"""Point d'entrée CLI pour le seeding — lancer depuis backend/ :
+
+    python seed.py
+
+La logique est dans app/seeds.py (module importé, ne pas exécuter directement).
+"""
 from app import create_app
 from app.seeds import seed_data
 

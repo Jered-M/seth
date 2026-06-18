@@ -12,8 +12,16 @@ export const useAuth = () => {
             const response = await authService.login(credentials);
             setLoading(false);
             return response;
-        } catch (err: any) {
-            const errorMessage = err.response?.data?.message || 'Erreur de connexion';
+        } catch (err: unknown) {
+            if (err instanceof Error && err.message === 'MFA_REQUIRED') {
+                setLoading(false);
+                throw err;
+            }
+            const axiosErr = err as { response?: { data?: { message?: string } }; message?: string };
+            const errorMessage =
+                axiosErr.response?.data?.message ||
+                (err instanceof Error ? err.message : null) ||
+                'Erreur de connexion';
             setError(errorMessage);
             setLoading(false);
             throw new Error(errorMessage);

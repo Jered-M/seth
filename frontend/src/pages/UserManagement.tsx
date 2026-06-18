@@ -16,7 +16,9 @@ import {
     Monitor,
     Plus,
     Loader2,
-    X
+    X,
+    Eye,
+    EyeOff
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import api from '../services/api';
@@ -77,6 +79,7 @@ export const UserManagement = () => {
     const [selectedDeviceByUser, setSelectedDeviceByUser] = useState<Record<string, string>>({});
     const [loading, setLoading] = useState(true);
     const [showAddForm, setShowAddForm] = useState(false);
+    const [showNewUserPassword, setShowNewUserPassword] = useState(false);
     const [formError, setFormError] = useState<string | null>(null);
     const [searchTerm, setSearchTerm] = useState('');
     const [newUser, setNewUser] = useState({
@@ -116,16 +119,18 @@ export const UserManagement = () => {
         if (isSupervisor || isDeptAdmin) return;
         try {
             const response = await api.get('/admin/departments');
-            if (Array.isArray(response.data)) {
-                const depts = response.data
-                    .filter((admin: any) => admin.department)
-                    .map((admin: any) => ({
-                        id: admin.department_id,
-                        name: admin.department
-                    }));
-                const uniqueDepts = Array.from(new Map(depts.map(d => [d.id, d])).values());
-                setDepartments(uniqueDepts);
-            }
+            const rows = Array.isArray(response.data)
+                ? response.data
+                : response.data?.departments || [];
+
+            const depts = rows
+                .filter((row: { department?: string; dept_id?: string }) => row.department && row.dept_id)
+                .map((row: { dept_id: string; department: string }) => ({
+                    id: row.dept_id,
+                    name: row.department,
+                }));
+
+            setDepartments(depts);
         } catch (error) {
             console.error('Error fetching departments:', error);
         }
@@ -178,16 +183,11 @@ export const UserManagement = () => {
                 await api.post('/dept/users', { name: newUser.name, email: newUser.email, password: newUser.password });
             } else {
                 if (newUser.role === 'DEPT_ADMIN') {
-                    if (!newUser.departmentId) {
-                        setFormError('Veuillez sélectionner un département pour créer un admin de département');
-                        return;
-                    }
-                    // Créer un admin de département (Correct route: /admin/admins)
                     await api.post('/admin/admins', {
                         username: newUser.name,
                         email: newUser.email,
                         password: newUser.password,
-                        dept_id: newUser.departmentId
+                        ...(newUser.departmentId ? { dept_id: newUser.departmentId } : {}),
                     });
                 } else {
                     // Créer un utilisateur standard
@@ -203,8 +203,9 @@ export const UserManagement = () => {
             setShowAddForm(false);
             setNewUser({ name: '', email: '', role: 'USER', password: '', departmentId: '' });
             await refreshAll();
-        } catch (error: any) {
-            setFormError(error?.response?.data?.message || error?.message || 'Erreur lors de la création');
+        } catch (error: unknown) {
+            const ax = error as { response?: { data?: { message?: string; error?: string } } };
+            setFormError(ax.response?.data?.message || ax.response?.data?.error || 'Erreur lors de la création');
         }
     };
 
@@ -382,14 +383,25 @@ export const UserManagement = () => {
                                     </div>
                                     <div className="space-y-1.5">
                                         <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Clé d'Accès</label>
-                                        <input
-                                            type="password"
-                                            required
-                                            value={newUser.password}
-                                            onChange={e => setNewUser({ ...newUser, password: e.target.value })}
-                                            className="w-full px-4 py-2.5 bg-[#060b18] border border-white/10 rounded-lg text-xs text-white focus:outline-none focus:border-blue-600"
-                                            placeholder="CLÉ SÉCURISÉE..."
-                                        />
+                                        <div className="relative">
+                                            <input
+                                                type={showNewUserPassword ? 'text' : 'password'}
+                                                required
+                                                value={newUser.password}
+                                                onChange={e => setNewUser({ ...newUser, password: e.target.value })}
+                                                className="w-full px-4 py-2.5 pr-10 bg-[#060b18] border border-white/10 rounded-lg text-xs text-white focus:outline-none focus:border-blue-600"
+                                                placeholder="CLÉ SÉCURISÉE..."
+                                            />
+                                            <button
+                                                type="button"
+                                                onClick={() => setShowNewUserPassword(v => !v)}
+                                                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-blue-400 transition-colors"
+                                                aria-label={showNewUserPassword ? 'Masquer le mot de passe' : 'Afficher le mot de passe'}
+                                                tabIndex={-1}
+                                            >
+                                                {showNewUserPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                                            </button>
+                                        </div>
                                     </div>
                                     <div className="space-y-1.5">
                                         <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Rôle / Accréditation</label>
@@ -412,21 +424,25 @@ export const UserManagement = () => {
                                         )}
                                     </div>
 
-                                    {newUser.role === 'DEPT_ADMIN' && departments.length > 0 && (
+                                    {newUser.role === 'DEPT_ADMIN' && (
                                         <div className="space-y-1.5 col-span-full">
-                                            <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Département Assigné</label>
+                                            <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest">
+                                                Département (optionnel)
+                                            </label>
                                             <select
                                                 title="Département"
-                                                required
                                                 value={newUser.departmentId}
                                                 onChange={e => setNewUser({ ...newUser, departmentId: e.target.value })}
                                                 className="w-full px-4 py-2.5 bg-[#060b18] border border-white/10 rounded-lg text-xs text-white focus:outline-none focus:border-blue-600 uppercase"
                                             >
-                                                <option value="">Sélectionner un département...</option>
+                                                <option value="">Sans département — assigner plus tard</option>
                                                 {departments.map(dept => (
                                                     <option key={dept.id} value={dept.id}>{dept.name}</option>
                                                 ))}
                                             </select>
+                                            <p className="text-[9px] text-slate-600 italic">
+                                                Laissez vide pour assigner depuis Unités de Commandement.
+                                            </p>
                                         </div>
                                     )}
                                 </div>

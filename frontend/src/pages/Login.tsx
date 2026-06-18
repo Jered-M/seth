@@ -1,35 +1,30 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { Shield, Lock, Mail, ArrowRight, AlertCircle, Monitor, Users, ShieldAlert } from 'lucide-react'
+import { Shield, Lock, Mail, ArrowRight, AlertCircle, Monitor, Users, ShieldAlert, Eye, EyeOff } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
-
-const getBrowserLocation = async (): Promise<{ lat: number; lng: number; accuracy?: number } | null> => {
-    if (!navigator.geolocation) return null;
-    return new Promise((resolve) => {
-        navigator.geolocation.getCurrentPosition(
-            (position) => {
-                resolve({
-                    lat: position.coords.latitude,
-                    lng: position.coords.longitude,
-                    accuracy: position.coords.accuracy
-                });
-            },
-            () => resolve(null),
-            { enableHighAccuracy: true, timeout: 7000, maximumAge: 120000 }
-        );
-    });
-};
-
+import { getBestBrowserLocation } from '../services/locationService'
 import { authService, User } from '../services/authService'
 import { TOTPVerification } from '../components/TOTPVerification'
 
 export const Login = ({ onLogin }: { onLogin: (user: User) => void }) => {
     const [email, setEmail] = useState('')
     const [password, setPassword] = useState('')
+    const [showPassword, setShowPassword] = useState(false)
     const [mfaPending, setMfaPending] = useState<any>(null)
+    const [flashError, setFlashError] = useState<string | null>(() =>
+        sessionStorage.getItem('auth_flash_error')
+    )
     const navigate = useNavigate()
     const { login, loading, error } = useAuth()
+
+    useEffect(() => {
+        const msg = sessionStorage.getItem('auth_flash_error')
+        if (msg) {
+            setFlashError(msg)
+            sessionStorage.removeItem('auth_flash_error')
+        }
+    }, [])
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault()
@@ -56,7 +51,7 @@ export const Login = ({ onLogin }: { onLogin: (user: User) => void }) => {
 
     const handleMfaSuccess = async (mfaToken: string) => {
         try {
-            const location = await getBrowserLocation();
+            const location = await getBestBrowserLocation({ maxWaitMs: 12000, targetAccuracyM: 40 });
             // Appeler l'endpoint de vérification MFA
             const response = await fetch('/api/auth/mfa/verify', {
                 method: 'POST',
@@ -171,9 +166,9 @@ export const Login = ({ onLogin }: { onLogin: (user: User) => void }) => {
                     </div>
 
                     <form onSubmit={handleSubmit} className="space-y-6">
-                        {error && (
+                        {(flashError || error) && (
                             <div className="p-3 bg-red-500/10 border border-red-500/20 rounded text-red-400 text-[10px] font-bold uppercase tracking-tight">
-                                {error}
+                                {flashError || error}
                             </div>
                         )}
                         
@@ -210,14 +205,23 @@ export const Login = ({ onLogin }: { onLogin: (user: User) => void }) => {
                                     <ShieldAlert className="w-4 h-4" />
                                 </div>
                                 <input
-                                    className="w-full pl-12 pr-4 py-4 bg-[#060b18] border-l-2 border-blue-600 focus:border-blue-400 focus:ring-0 text-white text-sm placeholder:text-slate-700 transition-all outline-none"
+                                    className="w-full pl-12 pr-12 py-4 bg-[#060b18] border-l-2 border-blue-600 focus:border-blue-400 focus:ring-0 text-white text-sm placeholder:text-slate-700 transition-all outline-none"
                                     placeholder="••••••••••••"
-                                    type="password"
+                                    type={showPassword ? 'text' : 'password'}
                                     value={password}
                                     onChange={(e) => setPassword(e.target.value)}
                                     required
                                     disabled={loading}
                                 />
+                                <button
+                                    type="button"
+                                    onClick={() => setShowPassword((v) => !v)}
+                                    className="absolute right-4 text-slate-500 hover:text-blue-400 transition-colors"
+                                    aria-label={showPassword ? 'Masquer le mot de passe' : 'Afficher le mot de passe'}
+                                    tabIndex={-1}
+                                >
+                                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                                </button>
                             </div>
                         </div>
 

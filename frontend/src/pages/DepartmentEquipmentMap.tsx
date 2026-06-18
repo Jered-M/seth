@@ -15,15 +15,14 @@ import {
     Wifi
 } from 'lucide-react';
 import Map2D from '../components/Map2D';
-
-const API_BASE_URL = '/api';
+import { refreshTrackedLocations } from '../services/locationService';
 
 interface EquipmentData {
     id: string;
     name: string;
     serial_number: string;
-    latitude: number;
-    longitude: number;
+    latitude: number | null;
+    longitude: number | null;
     status: string;
     assigned_to: string;
     department: string;
@@ -49,30 +48,18 @@ export const DepartmentEquipmentMap = () => {
     const fetchDepartmentEquipments = async () => {
         try {
             setError(null);
-            const token = localStorage.getItem('access_token');
-            const response = await fetch(`${API_BASE_URL}/user/department/devices-map`, {
-                method: 'GET',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`
-                },
-                credentials: 'include'
-            });
+            const tracked = await refreshTrackedLocations();
 
-            if (!response.ok) throw new Error(`Erreur API ${response.status}: ${response.statusText}`);
-            const rawData = await response.json();
-            
-            // GPS field mapping fix - backend sends last_known_lat/lng (TS/Babel safe)
-            const data = Array.isArray(rawData) ? rawData : [];
-            const mappedData = data.map((item: any) => ({
-                ...item,
-                latitude: (item.last_known_lat ?? item.latitude) ?? null,
-                longitude: (item.last_known_lng ?? item.longitude) ?? null,
-                name: item.name || item.serial_number || item.id,
-                serial_number: item.serial_number || (item as any).serialNumber,
-                assigned_to: item.assigned_to || (item as any).assignedTo || 'Non assigné',
-                department: item.department || 'N/A'
-            })) as EquipmentData[];
+            const mappedData: EquipmentData[] = tracked.map((item) => ({
+                id: item.id,
+                name: item.name,
+                serial_number: item.name,
+                latitude: item.lat,
+                longitude: item.lng,
+                status: item.status,
+                assigned_to: item.assignedTo || 'Non assigné',
+                department: item.department,
+            }));
 
 
             
@@ -225,7 +212,7 @@ export const DepartmentEquipmentMap = () => {
                             <div className="flex items-center justify-between text-[9px] font-bold text-slate-500 uppercase italic">
                                 <div className="flex items-center gap-2">
                                     <Navigation className="w-3 h-3 text-blue-500" />
-                                    <span>{eq.latitude.toFixed(6)}N / {eq.longitude.toFixed(6)}E</span>
+                                    <span>{Number(eq.latitude).toFixed(6)}N / {Number(eq.longitude).toFixed(6)}E</span>
                                 </div>
                                 <span>{eq.assigned_to.toUpperCase()}</span>
                             </div>

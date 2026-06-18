@@ -1,8 +1,25 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
+import {
+    MapContainer,
+    TileLayer,
+    Marker,
+    Popup,
+    ZoomControl,
+    Circle,
+    useMap,
+    useMapEvents,
+} from 'react-leaflet';
 import L from 'leaflet';
+import {
+    isMapViewportLocked,
+    lockMapViewport,
+    markInitialAutoFitDone,
+    shouldRunInitialAutoFit,
+} from '../services/mapViewport';
 
-// Fix for default marker icon in Leaflet with React
+const DEFAULT_CENTER: [number, number] = [48.8566, 2.3522];
+const DEFAULT_ZOOM = 13;
+
 const icon = L.icon({
     iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
     iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
@@ -10,147 +27,255 @@ const icon = L.icon({
     iconSize: [25, 41],
     iconAnchor: [12, 41],
     popupAnchor: [1, -34],
-    shadowSize: [41, 41]
+    shadowSize: [41, 41],
 });
 
-interface EquipmentPosition {
+export interface EquipmentPosition {
     id: string;
     name: string;
     type: string;
     lat: number;
     lng: number;
+    accuracy?: number | null;
     status: string;
 }
 
 interface Map2DProps {
     equipments: EquipmentPosition[];
+    manualPickEnabled?: boolean;
+    onManualPosition?: (lat: number, lng: number) => void;
+    focusTarget?: { id: string; lat: number; lng: number; tick: number } | null;
+    selectedId?: string | null;
 }
 
-// Composant pour forcer l'invalidation de la taille
-const MapResizer: React.FC = () => {
-    const map = useMap();
-    
-    useEffect(() => {
-        // Invalider la taille de la carte après le montage
-        const timer = setTimeout(() => {
-            map.invalidateSize();
-        }, 100);
-        
-        return () => clearTimeout(timer);
-    }, [map]);
-    
+const MapUserInteractionLock: React.FC = () => {
+    useMapEvents({
+        zoomend() {
+            lockMapViewport();
+        },
+        dragend() {
+            lockMapViewport();
+        },
+    });
     return null;
 };
 
-// Composant pour les marqueurs
-const MapMarkers: React.FC<{ equipments: EquipmentPosition[] }> = ({ equipments }) => {
-    return (
-        <>
-            {equipments.map((eq) => (
-                <Marker key={eq.id} position={[eq.lat, eq.lng]} icon={icon}>
+const MapClickPicker: React.FC<{
+    enabled?: boolean;
+    onPick?: (lat: number, lng: number) => void;
+}> = ({ enabled, onPick }) => {
+    const map = useMap();
+
+    useEffect(() => {
+        const container = map.getContainer();
+        container.style.cursor = enabled ? 'crosshair' : '';
+        return () => {
+            container.style.cursor = '';
+        };
+    }, [map, enabled]);
+
+    useMapEvents({
+        click(event) {
+            if (!enabled || !onPick) return;
+            onPick(event.latlng.lat, event.latlng.lng);
+        },
+    });
+
+    return null;
+};
+
+const MapResizer: React.FC = () => {
+    const map = useMap();
+
+    useEffect(() => {
+        const timer = setTimeout(() => map.invalidateSize(), 100);
+        return () => clearTimeout(timer);
+    }, [map]);
+
+    return null;
+};
+
+const EquipmentMarker: React.FC<{ equipment: EquipmentPosition; isSelected?: boolean }> = React.memo(
+    ({ equipment: eq, isSelected }) => {
+        const markerRef = useRef<L.Marker>(null);
+
+        useEffect(() => {
+            if (isSelected && markerRef.current) {
+                markerRef.current.openPopup();
+            }
+        }, [isSelected, eq.lat, eq.lng]);
+
+        return (
+            <>
+                {isSelected ? (
+                    <Circle
+                        center={[eq.lat, eq.lng]}
+                        radius={Math.max(eq.accuracy ?? 0, 40)}
+                        pathOptions={{
+                            color: '#f59e0b',
+                            fillColor: '#f59e0b',
+                            fillOpacity: 0.2,
+                            weight: 2,
+                        }}
+                    />
+                ) : null}
+                {eq.accuracy && eq.accuracy > 0 ? (
+                    <Circle
+                        center={[eq.lat, eq.lng]}
+                        radius={eq.accuracy}
+                        pathOptions={{
+                            color: '#3b82f6',
+                            fillColor: '#3b82f6',
+                            fillOpacity: 0.12,
+                            weight: 1,
+                        }}
+                    />
+                ) : null}
+                <Marker ref={markerRef} position={[eq.lat, eq.lng]} icon={icon}>
                     <Popup>
                         <div className="p-2">
                             <h3 className="font-bold text-gray-900">{eq.name}</h3>
                             <p className="text-sm text-gray-500">{eq.type}</p>
+                            {eq.accuracy ? (
+                                <p className="text-xs text-gray-500 mt-1">
+                                    Précision: ±{Math.round(eq.accuracy)} m
+                                </p>
+                            ) : null}
                             <div className="mt-2 text-xs font-semibold uppercase">
-                                Statut: <span className={eq.status === 'AVAILABLE' ? 'text-green-600' : 'text-orange-600'}>{eq.status}</span>
+                                Statut:{' '}
+                                <span
+                                    className={
+                                        eq.status === 'AVAILABLE' ? 'text-green-600' : 'text-orange-600'
+                                    }
+                                >
+                                    {eq.status}
+                                </span>
                             </div>
                         </div>
                     </Popup>
                 </Marker>
-            ))}
-        </>
-    );
-};
+            </>
+        );
+    },
+    (prev, next) =>
+        prev.equipment.id === next.equipment.id &&
+        prev.equipment.lat === next.equipment.lat &&
+        prev.equipment.lng === next.equipment.lng &&
+        prev.equipment.accuracy === next.equipment.accuracy &&
+        prev.equipment.status === next.equipment.status &&
+        prev.isSelected === next.isSelected
+);
 
-const MapViewportUpdater: React.FC<{ equipments: EquipmentPosition[] }> = ({ equipments }) => {
+const MapMarkers: React.FC<{ equipments: EquipmentPosition[]; selectedId?: string | null }> = ({
+    equipments,
+    selectedId,
+}) => (
+    <>
+        {equipments.map((eq) => (
+            <EquipmentMarker key={eq.id} equipment={eq} isSelected={eq.id === selectedId} />
+        ))}
+    </>
+);
+
+/** Centre la carte sur un matériel sélectionné depuis la liste. */
+const MapFocusController: React.FC<{
+    focusTarget?: { id: string; lat: number; lng: number; tick: number } | null;
+}> = ({ focusTarget }) => {
     const map = useMap();
 
     useEffect(() => {
-        if (!equipments.length) {
+        if (!focusTarget) return;
+        lockMapViewport();
+        map.flyTo([focusTarget.lat, focusTarget.lng], 16, { duration: 0.7 });
+    }, [focusTarget?.tick, focusTarget?.lat, focusTarget?.lng, map]);
+
+    return null;
+};
+
+/** Un seul centrage au premier chargement avec données — jamais après. */
+const MapInitialFit: React.FC<{ equipments: EquipmentPosition[] }> = ({ equipments }) => {
+    const map = useMap();
+    const didFitRef = useRef(false);
+
+    useEffect(() => {
+        if (didFitRef.current || !equipments.length || isMapViewportLocked() || !shouldRunInitialAutoFit()) {
             return;
         }
+
+        didFitRef.current = true;
+        markInitialAutoFitDone();
 
         if (equipments.length === 1) {
             const only = equipments[0];
-            map.setView([only.lat, only.lng], 13, { animate: true });
+            map.setView([only.lat, only.lng], 15, { animate: false });
             return;
         }
 
-        const bounds = L.latLngBounds(equipments.map((eq) => [eq.lat, eq.lng] as [number, number]));
-        map.fitBounds(bounds.pad(0.25), { animate: true });
+        const bounds = L.latLngBounds(
+            equipments.map((eq) => [eq.lat, eq.lng] as [number, number])
+        );
+        map.fitBounds(bounds.pad(0.25), { animate: false, maxZoom: 16 });
     }, [map, equipments]);
 
     return null;
 };
 
-const Map2D: React.FC<Map2DProps> = ({ equipments }) => {
-    const center: [number, number] = [48.8566, 2.3522]; // Default center (Paris)
+const Map2D: React.FC<Map2DProps> = ({
+    equipments,
+    manualPickEnabled,
+    onManualPosition,
+    focusTarget,
+    selectedId,
+}) => {
     const [isLoaded, setIsLoaded] = useState(false);
-    const containerRef = useRef<HTMLDivElement>(null);
-    const mapKey = equipments
-        .map((eq) => `${eq.id}:${eq.lat.toFixed(5)}:${eq.lng.toFixed(5)}`)
-        .join('|');
+    const mapInstanceKey = useRef(`map-${Date.now()}`).current;
 
     useEffect(() => {
-        // S'assurer que le conteneur est monté avant d'afficher la carte
-        const timer = setTimeout(() => {
-            setIsLoaded(true);
-        }, 50);
-        
+        const timer = setTimeout(() => setIsLoaded(true), 50);
         return () => clearTimeout(timer);
     }, []);
 
-    useEffect(() => {
-        // Force le recalcul de la taille de la fenêtre
-        if (isLoaded) {
-            const timer = setTimeout(() => {
-                window.dispatchEvent(new Event('resize'));
-            }, 150);
-            
-            return () => clearTimeout(timer);
-        }
-    }, [isLoaded]);
-
     return (
-        <div
-            ref={containerRef}
-            className="map-shell w-full h-full min-h-[420px] rounded-2xl overflow-hidden border border-gray-200 shadow-sm relative"
-        >
-            {!isLoaded && (
-                <div className="absolute inset-0 flex items-center justify-center bg-slate-50">
+        <div className="map-shell w-full h-full min-h-[420px] rounded-2xl overflow-hidden border border-gray-200 shadow-sm relative">
+            {!isLoaded ? (
+                <div className="absolute inset-0 flex items-center justify-center bg-slate-50 z-10">
                     <div className="text-center">
-                        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto mb-4"></div>
+                        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto mb-4" />
                         <p className="text-gray-500 font-medium">Chargement de la carte...</p>
                     </div>
                 </div>
-            )}
-            {isLoaded && (
+            ) : null}
+            {isLoaded ? (
                 <MapContainer
-                    key={mapKey || 'empty-map'}
-                    center={center}
-                    zoom={13}
-                    scrollWheelZoom={true}
+                    key={mapInstanceKey}
+                    center={DEFAULT_CENTER}
+                    zoom={DEFAULT_ZOOM}
+                    minZoom={3}
+                    maxZoom={19}
+                    scrollWheelZoom
+                    touchZoom
+                    doubleClickZoom
+                    boxZoom
+                    keyboard
+                    zoomControl={false}
                     className="map-canvas h-full w-full z-0"
-                    whenReady={() => {
-                        // Callback quand la carte est prête
-                        setTimeout(() => {
-                            window.dispatchEvent(new Event('resize'));
-                        }, 100);
-                    }}
                 >
                     <MapResizer />
+                    <MapUserInteractionLock />
+                    <ZoomControl position="bottomright" />
                     <TileLayer
                         attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
                         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
                         maxZoom={19}
                     />
-                    <MapViewportUpdater equipments={equipments} />
-                    <MapMarkers equipments={equipments} />
+                    <MapInitialFit equipments={equipments} />
+                    <MapFocusController focusTarget={focusTarget} />
+                    <MapClickPicker enabled={manualPickEnabled} onPick={onManualPosition} />
+                    <MapMarkers equipments={equipments} selectedId={selectedId} />
                 </MapContainer>
-            )}
+            ) : null}
         </div>
     );
 };
 
-export default Map2D;
+export default React.memo(Map2D);

@@ -84,11 +84,84 @@ def init_db(app):
             # Import models inside context to avoid circularity
             import app.models.security_models
             db.create_all()
+            _migrate_device_location_fields()
+            _migrate_internal_request_fields()
+            _migrate_security_alert_fields()
             print("[OK] Base de données initialisée (create_all executed)")
     except Exception as e:
         print(f"[CRITICAL ERROR] IN INIT_DB: {e}")
         import traceback
         traceback.print_exc()
+
+def _migrate_device_location_fields():
+    """Ajoute les colonnes GPS manquantes sur les bases déjà existantes."""
+    from sqlalchemy import inspect
+    try:
+        inspector = inspect(db.engine)
+        if "devices" not in inspector.get_table_names():
+            return
+        columns = {col["name"] for col in inspector.get_columns("devices")}
+        statements = []
+        if "last_known_accuracy" not in columns:
+            statements.append("ALTER TABLE devices ADD COLUMN last_known_accuracy FLOAT")
+        if "location_updated_at" not in columns:
+            statements.append("ALTER TABLE devices ADD COLUMN location_updated_at TIMESTAMP")
+        for stmt in statements:
+            db.session.execute(text(stmt))
+        if statements:
+            db.session.commit()
+            print(f"[OK] Migration GPS: {len(statements)} colonne(s) ajoutée(s)")
+    except Exception as exc:
+        db.session.rollback()
+        print(f"[WARN] Migration GPS ignorée: {exc}")
+
+
+def _migrate_internal_request_fields():
+    """Colonnes workflow agent de sécurité sur internal_requests."""
+    from sqlalchemy import inspect
+    try:
+        inspector = inspect(db.engine)
+        if "internal_requests" not in inspector.get_table_names():
+            return
+        columns = {col["name"] for col in inspector.get_columns("internal_requests")}
+        statements = []
+        if "security_reviewer_id" not in columns:
+            statements.append("ALTER TABLE internal_requests ADD COLUMN security_reviewer_id VARCHAR(36)")
+        if "security_comment" not in columns:
+            statements.append("ALTER TABLE internal_requests ADD COLUMN security_comment TEXT")
+        if "exited_at" not in columns:
+            statements.append("ALTER TABLE internal_requests ADD COLUMN exited_at TIMESTAMP")
+        for stmt in statements:
+            db.session.execute(text(stmt))
+        if statements:
+            db.session.commit()
+            print(f"[OK] Migration demandes: {len(statements)} colonne(s) ajoutée(s)")
+    except Exception as exc:
+        db.session.rollback()
+        print(f"[WARN] Migration demandes ignorée: {exc}")
+
+
+def _migrate_security_alert_fields():
+    """Colonnes assignation technicien sur security_alerts."""
+    from sqlalchemy import inspect
+    try:
+        inspector = inspect(db.engine)
+        if "security_alerts" not in inspector.get_table_names():
+            return
+        columns = {col["name"] for col in inspector.get_columns("security_alerts")}
+        statements = []
+        if "assigned_technician_id" not in columns:
+            statements.append("ALTER TABLE security_alerts ADD COLUMN assigned_technician_id VARCHAR(36)")
+        if "assigned_at" not in columns:
+            statements.append("ALTER TABLE security_alerts ADD COLUMN assigned_at TIMESTAMP")
+        for stmt in statements:
+            db.session.execute(text(stmt))
+        if statements:
+            db.session.commit()
+            print(f"[OK] Migration alertes: {len(statements)} colonne(s) ajoutée(s)")
+    except Exception as exc:
+        db.session.rollback()
+        print(f"[WARN] Migration alertes ignorée: {exc}")
 
 def get_db_connection():
     """Retourne une connexion brute à la base de données (pour compatibilité)."""

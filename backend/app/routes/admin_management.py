@@ -133,7 +133,8 @@ def create_department_admin():
             "ADMIN_CREATE",
             f"Création de l'administrateur {data['email']}",
             request.remote_addr,
-            request.headers.get("User-Agent")
+            request.headers.get("User-Agent"),
+            department_id=data.get("departmentId"),
         )
         
         return jsonify({'message': 'Administrateur créé avec succès', 'id': str(new_admin.id)}), 201

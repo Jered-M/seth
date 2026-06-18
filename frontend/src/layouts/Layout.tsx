@@ -37,7 +37,7 @@ export const Layout = ({ user, onLogout }: LayoutProps) => {
         { icon: LayoutDashboard, label: 'Tableau de bord', path: '/', roles: ['SUPER_ADMIN', 'DEPT_ADMIN', 'SUPERVISOR', 'GARDIEN', 'USER'] },
         { icon: Users, label: 'Utilisateurs', path: '/users', roles: ['SUPER_ADMIN', 'DEPT_ADMIN'] },
         { icon: Building2, label: 'Départements', path: '/admin-departments', roles: ['SUPER_ADMIN'] },
-        { icon: Monitor, label: 'Équipements', path: '/equipments', roles: ['DEPT_ADMIN', 'SUPERVISOR', 'USER'] },
+        { icon: Monitor, label: 'Équipements', path: '/equipments', roles: ['SUPER_ADMIN', 'DEPT_ADMIN', 'SUPERVISOR'] },
         { icon: LocateFixed, label: 'Localisation', path: '/tracking', roles: ['SUPER_ADMIN', 'DEPT_ADMIN', 'SUPERVISOR'] },
         { icon: FileCheck, label: 'Autorisations', path: '/guardian', roles: ['GARDIEN', 'DEPT_ADMIN'] },
         { icon: ShieldAlert, label: 'Alertes', path: '/alerts', roles: ['SUPER_ADMIN', 'DEPT_ADMIN', 'SUPERVISOR'] },

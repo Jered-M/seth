@@ -28,23 +28,36 @@ class SecurityService:
             return False
 
     @staticmethod
-    def log_event(user_id: str, action: str, details: str, ip: str, user_agent: str, status: str = "SUCCESS", risk_score: int = 0):
+    def log_event(
+        user_id: str,
+        action: str,
+        details: str,
+        ip: str,
+        user_agent: str,
+        status: str = "SUCCESS",
+        risk_score: int = 0,
+        department_id: str | None = None,
+    ):
         """Enregistre un événement de sécurité"""
         user = User.query.get(user_id) if user_id else None
         risk_level = "LOW"
-        if risk_score > 70: risk_level = "HIGH"
-        elif risk_score > 40: risk_level = "MEDIUM"
+        if risk_score > 70:
+            risk_level = "HIGH"
+        elif risk_score > 40:
+            risk_level = "MEDIUM"
+
+        resolved_dept_id = department_id if department_id is not None else (user.department_id if user else None)
 
         log = SecurityLog(
             user_id=user_id,
-            department_id=user.department_id if user else None,
+            department_id=resolved_dept_id,
             action=action,
             details=details,
             ip_address=ip,
             user_agent=user_agent,
             status=status,
             risk_score=risk_score,
-            risk_level=risk_level
+            risk_level=risk_level,
         )
         db.session.add(log)
         db.session.commit()
@@ -57,7 +70,7 @@ class SecurityService:
             user_id=user_id,
             department_id=user.department_id if user else None,
             type=alert_type,
-            message=message
+            message=message,
         )
         db.session.add(alert)
         db.session.commit()

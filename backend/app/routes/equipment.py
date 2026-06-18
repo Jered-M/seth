@@ -1,9 +1,10 @@
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from ..services.security_service import SecurityService
-from ..models.security_models import User, RoleName, SecurityLog, Device, Department
+from ..models.security_models import User, RoleName, SecurityLog, Device, Department, Role
 from app.database import db
 from sqlalchemy import text
+from datetime import datetime
 import uuid
 
 equipment_bp = Blueprint("equipment", __name__)
@@ -75,8 +76,20 @@ def _get_assigned_user_ids():
 @equipment_bp.route("/", methods=["GET"])
 @jwt_required()
 def get_equipments():
+    current_user_id = get_jwt_identity()
+    requester = User.query.get(current_user_id)
+
+    if requester and requester.role and requester.role.name == RoleName.USER:
+        return jsonify({"message": "Accès refusé — réservé aux administrateurs"}), 403
+
     try:
-        devices = Device.query.all()
+        query = Device.query
+        # Les admins (général + département) voient tout l'inventaire.
+        if requester and requester.role:
+            role = requester.role.name
+            if role == RoleName.SUPERVISOR and requester.department_id:
+                query = query.filter_by(department_id=requester.department_id)
+        devices = query.all()
         return jsonify([
             {
                 "id": d.id,
@@ -89,6 +102,7 @@ def get_equipments():
                 "location": None,
                 "last_known_lat": d.last_known_lat,
                 "last_known_lng": d.last_known_lng,
+                "last_known_accuracy": d.last_known_accuracy,
             }
             for d in devices
         ]), 200
@@ -187,20 +201,22 @@ def get_assignable_users(id):
     if not requester:
         return jsonify({"message": "Utilisateur connecté introuvable"}), 404
 
-    allowed_roles = {"ADMIN_GENERAL", "SUPER_ADMIN", "ADMIN_DEPT", "DEPT_ADMIN", "SUPERVISOR"}
+    allowed_roles = {RoleName.DEPT_ADMIN, "ADMIN_DEPT"}
     if not requester.role or requester.role.name not in allowed_roles:
-        return jsonify({"message": "Accès refusé. Permission insuffisante."}), 403
+        return jsonify({"message": "Seul le chef de département peut assigner du matériel"}), 403
 
     equipment_ctx = _load_equipment_context(id)
     if not equipment_ctx:
         return jsonify({"message": "Equipment non trouvé"}), 404
 
-    # Department admins and supervisors are limited to their own department.
-    if requester.role.name in {"ADMIN_DEPT", "DEPT_ADMIN", "SUPERVISOR"}:
-        if requester.department_id != equipment_ctx["department_id"]:
-            return jsonify({"message": "Accès refusé hors de votre département."}), 403
+    if requester.department_id != equipment_ctx["department_id"]:
+        return jsonify({"message": "Accès refusé hors de votre département."}), 403
 
-    users = User.query.filter_by(department_id=equipment_ctx["department_id"], is_blocked=False).all()
+    users = User.query.join(Role).filter(
+        User.department_id == equipment_ctx["department_id"],
+        User.is_blocked.is_(False),
+        Role.name == RoleName.USER,
+    ).all()
     assigned_user_ids = _get_assigned_user_ids()
 
     filtered = []
@@ -232,13 +248,16 @@ def assign_equipment(id):
     if not requester:
         return jsonify({"message": "Utilisateur connecté introuvable"}), 404
 
-    allowed_roles = {"ADMIN_GENERAL", "SUPER_ADMIN", "ADMIN_DEPT", "DEPT_ADMIN", "SUPERVISOR"}
+    allowed_roles = {RoleName.DEPT_ADMIN, "ADMIN_DEPT"}
     if not requester.role or requester.role.name not in allowed_roles:
-        return jsonify({"message": "Accès refusé. Permission insuffisante."}), 403
+        return jsonify({"message": "Seul le chef de département peut assigner du matériel"}), 403
 
     equipment_ctx = _load_equipment_context(id)
     if not equipment_ctx:
         return jsonify({"message": "Equipment non trouvé"}), 404
+
+    if requester.department_id != equipment_ctx["department_id"]:
+        return jsonify({"message": "Accès refusé hors de votre département."}), 403
 
     user = User.query.get(user_id)
     if not user:
@@ -256,9 +275,8 @@ def assign_equipment(id):
     equipment_department = equipment_ctx["department_id"]
     user_department = user.department_id
 
-    if requester.role.name in {"ADMIN_DEPT", "DEPT_ADMIN", "SUPERVISOR"}:
-        if requester.department_id != equipment_department:
-            return jsonify({"message": "Accès refusé hors de votre département."}), 403
+    if requester.department_id != equipment_department:
+        return jsonify({"message": "Accès refusé hors de votre département."}), 403
 
     if equipment_department and user_department and equipment_department != user_department:
         return jsonify({"message": "L'utilisateur doit appartenir au même département que l'équipement."}), 403
@@ -276,7 +294,13 @@ def assign_equipment(id):
         )
     db.session.commit()
     
-    SecurityService.log_event(technician_id, "EQUIPMENT_ASSIGNED", f"Assigned equipment {id} to user {user_id}", request.remote_addr)
+    SecurityService.log_event(
+        technician_id,
+        "EQUIPMENT_ASSIGNED",
+        f"Assigned equipment {id} to user {user_id}",
+        request.remote_addr or "",
+        request.headers.get("User-Agent", ""),
+    )
     return jsonify({"message": "Equipment assigned", "id": id}), 200
 
 @equipment_bp.route("/<id>/location", methods=["POST"])
@@ -288,9 +312,10 @@ def update_location(id):
     data = request.json
     lat = data.get("lat")
     lng = data.get("lng")
+    accuracy = data.get("accuracy")
     user_id = get_jwt_identity()
     
-    if not lat or not lng:
+    if lat is None or lng is None:
         return jsonify({"message": "Missing coordinates"}), 400
         
     # Update device location
@@ -298,8 +323,13 @@ def update_location(id):
     if not device:
         return jsonify({"message": "Equipment non trouvé"}), 404
 
-    device.last_known_lat = lat
-    device.last_known_lng = lng
+    device.last_known_lat = float(lat)
+    device.last_known_lng = float(lng)
+    if accuracy is not None:
+        new_accuracy = float(accuracy)
+        if device.last_known_accuracy is None or new_accuracy <= device.last_known_accuracy:
+            device.last_known_accuracy = new_accuracy
+    device.location_updated_at = datetime.utcnow()
     
     # Check geofencing
     is_inside = SecurityService.check_geofencing(id)
@@ -323,6 +353,8 @@ def update_location(id):
                 status="CRITICAL",
                 risk_score=90
             )
+            db.session.commit()
             return jsonify({"message": "Alert triggered: unauthorized exit", "inside": False}), 200
 
+    db.session.commit()
     return jsonify({"message": "Location updated", "inside": is_inside}), 200

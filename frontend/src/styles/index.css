@@ -94,3 +94,13 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(59, 130, 246, 0.3);
 }
+
+.map-shell,
+.map-shell .leaflet-container {
+  touch-action: none;
+}
+
+.map-shell .leaflet-control-zoom a {
+  color: #0f172a;
+  font-weight: 700;
+}

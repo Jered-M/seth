@@ -1,4 +1,5 @@
 import api from './api';
+import { getBestBrowserLocation } from './locationService';
 
 export interface LoginCredentials {
     email: string;
@@ -25,73 +26,66 @@ export interface LoginResponse {
     user: User;
 }
 
-const getBrowserLocation = async (): Promise<{ lat: number; lng: number; accuracy?: number } | null> => {
-    if (!navigator.geolocation) return null;
-
-    return new Promise((resolve) => {
-        navigator.geolocation.getCurrentPosition(
-            (position) => {
-                resolve({
-                    lat: position.coords.latitude,
-                    lng: position.coords.longitude,
-                    accuracy: position.coords.accuracy
-                });
-            },
-            () => resolve(null),
-            { enableHighAccuracy: true, timeout: 7000, maximumAge: 120000 }
-        );
-    });
-};
-
 export const authService = {
     async login(credentials: LoginCredentials): Promise<LoginResponse> {
         try {
-            const location = await getBrowserLocation();
+            // GPS en parallèle — ne bloque pas la connexion (max 3 s)
+            const location = await Promise.race([
+                getBestBrowserLocation({ maxWaitMs: 3000, targetAccuracyM: 150 }),
+                new Promise<null>((resolve) => setTimeout(() => resolve(null), 3000)),
+            ]);
+
             const response = await api.post('/auth/login', {
                 ...credentials,
-                ...(location ? { location } : {})
+                ...(location ? { location } : {}),
             });
-            console.log('Raw auth response:', response.data);
-            
-            // Vérifier si MFA est requis
+
+            console.log('[SetH AUTH] Réponse login:', {
+                status: response.status,
+                message: response.data?.message,
+                role: response.data?.user?.role,
+                code: response.data?.code,
+            });
+
             if (response.data.message === 'MFA_REQUIRED') {
                 localStorage.setItem('mfa_pending', JSON.stringify({
                     user_id: response.data.user_id,
                     risk_score: response.data.risk_score,
-                    factors: response.data.factors
+                    factors: response.data.factors,
                 }));
                 throw new Error('MFA_REQUIRED');
             }
-            
-            // Cas 1: Nouvelle structure (access_token + user)
+
             if (response.data.access_token && response.data.user) {
                 localStorage.setItem('access_token', response.data.access_token);
                 localStorage.setItem('user', JSON.stringify(response.data.user));
                 return response.data;
             }
-            
-            // Cas 2: Ancienne structure (tokens.access_token + role)
-            if (response.data.tokens && response.data.tokens.access_token) {
+
+            if (response.data.tokens?.access_token) {
                 const token = response.data.tokens.access_token;
                 localStorage.setItem('access_token', token);
-                
                 const user: User = {
                     id: credentials.email,
                     name: credentials.email,
                     role: response.data.role,
-                    email: credentials.email
+                    email: credentials.email,
                 };
                 localStorage.setItem('user', JSON.stringify(user));
-                
-                return {
-                    access_token: token,
-                    user
-                };
+                return { access_token: token, user };
             }
-            
-            return response.data;
-        } catch (error) {
-            console.error('Login error:', error);
+
+            throw new Error('Réponse serveur incomplète (token manquant)');
+        } catch (error: unknown) {
+            if (error instanceof Error && error.message === 'MFA_REQUIRED') {
+                throw error;
+            }
+            const ax = error as { response?: { status?: number; data?: { message?: string; code?: string } } };
+            console.error('[SetH AUTH] Échec login:', {
+                status: ax.response?.status,
+                message: ax.response?.data?.message,
+                code: ax.response?.data?.code,
+            });
             throw error;
         }
     },
