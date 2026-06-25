@@ -8,6 +8,38 @@ import json
 
 user_bp = Blueprint("user", __name__)
 
+ONLINE_WINDOW = timedelta(hours=8)
+
+_TRACKING_ROLES = {
+    RoleName.SUPER_ADMIN,
+    "ADMIN_GENERAL",
+    RoleName.DEPT_ADMIN,
+    "ADMIN_DEPT",
+    RoleName.SUPERVISOR,
+    RoleName.SECURITY_AGENT,
+}
+
+
+def _last_success_login(user_id: str):
+    return (
+        SecurityLog.query.filter_by(user_id=user_id, action="LOGIN", status="SUCCESS")
+        .order_by(SecurityLog.created_at.desc())
+        .first()
+    )
+
+
+def _login_location(last_login):
+    if not last_login:
+        return None, None, None
+    try:
+        details = json.loads(last_login.details or "{}")
+        location = details.get("location") if isinstance(details, dict) else None
+        if isinstance(location, dict):
+            return location.get("lat"), location.get("lng"), location.get("accuracy")
+    except Exception:
+        pass
+    return None, None, None
+
 
 def _apply_device_location(device: Device, lat, lng, accuracy=None):
     device.last_known_lat = float(lat)
@@ -99,7 +131,18 @@ def update_position():
         return jsonify({"message": "Équipement non autorisé"}), 403
         
     _apply_device_location(device, lat, lng, accuracy)
-    
+
+    user = User.query.get(user_id)
+    if user and not SecurityService._is_super_admin(user):
+        SecurityService.ensure_super_admin_perimeter_zone()
+        SecurityService.handle_super_admin_perimeter_breach(
+            user,
+            float(lat),
+            float(lng),
+            request.remote_addr or "",
+            request.headers.get("User-Agent") or "",
+        )
+
     # Vérification géofencing
     is_safe = SecurityService.check_geofencing(device_id)
     
@@ -138,6 +181,48 @@ def get_devices_with_location():
         })
     
     return jsonify(result), 200
+
+
+@user_bp.route("/location/sync", methods=["POST"])
+@jwt_required()
+def sync_user_location():
+    """Synchronise la position GPS utilisateur et vérifie le périmètre super admin (10 m)."""
+    user = User.query.get(get_jwt_identity())
+    if not user:
+        return jsonify({"message": "Utilisateur introuvable"}), 404
+
+    data = request.json or {}
+    lat = data.get("lat")
+    lng = data.get("lng")
+    if lat is None or lng is None:
+        return jsonify({"message": "Coordonnées manquantes"}), 400
+
+    flat, flng = float(lat), float(lng)
+    ip = request.remote_addr or ""
+    user_agent = request.headers.get("User-Agent") or ""
+
+    SecurityService.ensure_super_admin_perimeter_zone()
+
+    if not SecurityService._is_super_admin(user):
+        SecurityService.handle_super_admin_perimeter_breach(user, flat, flng, ip, user_agent)
+
+    perimeter = SecurityService.check_super_admin_perimeter(flat, flng)
+    return jsonify({
+        "message": "Position synchronisée",
+        "perimeter": perimeter,
+        "alert": not perimeter.get("inside", True) and perimeter.get("configured"),
+    }), 200
+
+
+@user_bp.route("/tracking/super-admin-perimeter", methods=["GET"])
+@jwt_required()
+def get_super_admin_perimeter():
+    """Retourne le périmètre 10 m autour du PC super admin (carte / supervision)."""
+    requester = User.query.get(get_jwt_identity())
+    if not requester or not requester.role or requester.role.name not in _TRACKING_ROLES:
+        return jsonify({"message": "Accès refusé"}), 403
+    return jsonify(SecurityService.get_super_admin_perimeter_status()), 200
+
 
 @user_bp.route("/department/devices-map", methods=["GET"])
 @jwt_required()
@@ -249,3 +334,33 @@ def get_connected_users_with_location():
         })
 
     return jsonify(payload), 200
+
+
+@user_bp.route("/tracking/live-positions", methods=["GET"])
+@jwt_required()
+def get_live_tracking_positions():
+    """Positions GPS des utilisateurs connectés et de leurs appareils assignés."""
+    from app.services.tracking_service import build_live_positions
+
+    requester = User.query.get(get_jwt_identity())
+    if not requester or not requester.role or requester.role.name not in _TRACKING_ROLES:
+        return jsonify({"message": "Accès refusé"}), 403
+
+    return jsonify(build_live_positions(requester)), 200
+
+
+@user_bp.route("/tracking/passage-history", methods=["GET"])
+@jwt_required()
+def get_passage_history():
+    """Historique présence site, sorties autorisées et tentatives frauduleuses."""
+    from app.services.tracking_service import build_passage_history
+
+    requester = User.query.get(get_jwt_identity())
+    allowed = {
+        RoleName.SUPER_ADMIN, "ADMIN_GENERAL",
+        RoleName.DEPT_ADMIN, "ADMIN_DEPT",
+    }
+    if not requester or not requester.role or requester.role.name not in allowed:
+        return jsonify({"message": "Accès refusé"}), 403
+
+    return jsonify(build_passage_history(requester)), 200

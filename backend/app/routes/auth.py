@@ -55,6 +55,77 @@ def _sync_user_devices_location(user_id: str, location: dict):
     if devices:
         db.session.commit()
 
+
+def _complete_successful_login(user: User, ip: str, user_agent: str | None, location, risk_score: int = 0):
+    """Journalise la connexion, ouvre la session et diffuse les notifications in-app."""
+    from app.services.tracking_service import notify_login
+    from app.services.workflow_service import SessionService
+
+    details = {"message": "Connexion réussie"}
+    in_zone = None
+
+    if isinstance(location, dict) and location.get("lat") is not None and location.get("lng") is not None:
+        lat = float(location["lat"])
+        lng = float(location["lng"])
+        zone = SecurityService.check_point_in_zone(lat, lng, user.department_id)
+        in_zone = zone["in_zone"]
+        zone_status = "IN_ZONE" if in_zone else "OUT_OF_ZONE"
+        details["location"] = {
+            "lat": lat,
+            "lng": lng,
+            "accuracy": location.get("accuracy"),
+        }
+        details["zone_status"] = zone_status
+        details["zone_name"] = zone.get("zone_name")
+        details["department"] = user.department.name if user.department else None
+        details["login_at"] = datetime.utcnow().isoformat()
+
+        if not in_zone:
+            SecurityService.create_alert(
+                user.id,
+                "UNAUTHORIZED_EXIT",
+                f"Connexion HORS ZONE — {user.username} ({user.department.name if user.department else 'N/A'})",
+            )
+            SecurityService.log_event(
+                user.id,
+                "GEOFENCE_BREACH",
+                json.dumps({
+                    "message": "Connexion hors zone autorisée",
+                    "location": details["location"],
+                    "zone_status": zone_status,
+                }),
+                ip,
+                user_agent or "",
+                status="ALERT",
+                risk_score=85,
+                department_id=user.department_id,
+            )
+
+    SecurityService.log_event(
+        user.id,
+        "LOGIN",
+        json.dumps(details),
+        ip,
+        user_agent,
+        risk_score=risk_score,
+        department_id=user.department_id,
+    )
+
+    _sync_user_devices_location(user.id, location)
+    SessionService.open_session(user, ip, user_agent, location, None, in_zone=in_zone)
+
+    lat_val = location.get("lat") if isinstance(location, dict) else None
+    lng_val = location.get("lng") if isinstance(location, dict) else None
+
+    if lat_val is not None and lng_val is not None:
+        flat, flng = float(lat_val), float(lng_val)
+        SecurityService.ensure_super_admin_perimeter_zone()
+        if not SecurityService._is_super_admin(user):
+            SecurityService.handle_super_admin_perimeter_breach(user, flat, flng, ip, user_agent or "")
+
+    notify_login(user, in_zone, lat_val, lng_val, datetime.utcnow())
+
+
 @auth_bp.route("/login", methods=["POST"])
 def login():
     data = request.json or {}
@@ -142,24 +213,7 @@ def login():
 
     # Success direct
     tokens = SecurityService.generate_tokens(user)
-    details = {"message": "Connexion réussie"}
-    if isinstance(location, dict) and location.get("lat") is not None and location.get("lng") is not None:
-        details["location"] = {
-            "lat": location.get("lat"),
-            "lng": location.get("lng"),
-            "accuracy": location.get("accuracy")
-        }
-
-    SecurityService.log_event(
-        user.id,
-        "LOGIN",
-        json.dumps(details),
-        ip,
-        user_agent,
-        risk_score=risk["score"]
-    )
-
-    _sync_user_devices_location(user.id, location)
+    _complete_successful_login(user, ip, user_agent, location, risk_score=risk["score"])
 
     log.info(
         "LOGIN OK email=%s role=%s dept=%s",
@@ -231,25 +285,8 @@ def verify_mfa():
         
         tokens = SecurityService.generate_tokens(user)
         SecurityService.log_event(user.id, "MFA_VERIFY", "MFA réussie", ip, user_agent)
+        _complete_successful_login(user, ip, user_agent, location)
 
-        details = {"message": "Connexion réussie après MFA"}
-        if isinstance(location, dict) and location.get("lat") is not None and location.get("lng") is not None:
-            details["location"] = {
-                "lat": location.get("lat"),
-                "lng": location.get("lng"),
-                "accuracy": location.get("accuracy")
-            }
-
-        SecurityService.log_event(
-            user.id,
-            "LOGIN",
-            json.dumps(details),
-            ip,
-            user_agent,
-        )
-
-        _sync_user_devices_location(user.id, location)
-        
         return jsonify({
             "message": "Success",
             "access_token": tokens["access_token"],

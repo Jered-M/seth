@@ -67,13 +67,24 @@ export const requestService = {
         return res.data;
     },
 
-    async confirmExit(id: string, comment?: string) {
-        const res = await api.post<InternalRequest>(`/requests/${id}/confirm-exit`, { comment });
+    async confirmExit(id: string, comment?: string, agentLocation?: { lat: number; lng: number; accuracy?: number }) {
+        const res = await api.post<InternalRequest>(`/requests/${id}/confirm-exit`, {
+            comment,
+            agent_location: agentLocation,
+        });
         return res.data;
     },
 
-    async denyExit(id: string, comment: string) {
-        const res = await api.post<InternalRequest>(`/requests/${id}/deny-exit`, { comment });
+    async denyExit(id: string, comment: string, agentLocation?: { lat: number; lng: number; accuracy?: number }) {
+        const res = await api.post<InternalRequest>(`/requests/${id}/deny-exit`, {
+            comment,
+            agent_location: agentLocation,
+        });
+        return res.data;
+    },
+
+    async forceConfirmExit(id: string, comment?: string) {
+        const res = await api.post<InternalRequest>(`/requests/${id}/force-confirm-exit`, { comment });
         return res.data;
     },
 };

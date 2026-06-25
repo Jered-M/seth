@@ -16,17 +16,24 @@ import Map2D from '../components/Map2D';
 import Map3D from '../components/Map3D';
 import {
     createManualPosition,
+    describeAccuracy,
+    fetchLiveTracking,
     fetchTrackedEquipments,
     getBestBrowserLocation,
+    getFreshBrowserLocation,
     getLocationProfile,
     hasMovedSignificantly,
     isDesktopDevice,
+    isMobileWeb,
     refreshTrackedLocations,
     roundCoordForStability,
     startLocationWatch,
     syncMyDevicePositions,
+    SuperAdminPerimeter,
     TrackedEquipment,
 } from '../services/locationService';
+import { authService } from '../services/authService';
+import { MAP_STATUS_COLORS, MAP_STATUS_LABELS } from '../services/trackingService';
 import { lockMapViewport, resetMapViewportState } from '../services/mapViewport';
 
 interface EquipmentData {
@@ -42,6 +49,11 @@ interface EquipmentData {
     last_login: string;
     location_source: string;
     has_location?: boolean;
+    kind?: string;
+    assigned_to?: string;
+    map_status?: string;
+    zone_status?: string;
+    serial_number?: string | null;
 }
 
 interface EquipmentPosition {
@@ -52,21 +64,31 @@ interface EquipmentPosition {
     lng: number;
     accuracy?: number | null;
     status: string;
+    mapStatus?: string;
+    zoneStatus?: string;
+    department?: string;
+    assignedTo?: string;
+    serialNumber?: string;
 }
 
 const toEquipmentData = (item: TrackedEquipment): EquipmentData => ({
     id: item.id,
     name: item.name,
-    email: '',
+    email: item.email || '',
     role: item.assignedTo ? 'ASSIGNED_USER' : 'USER',
     lat: item.lat,
     lng: item.lng,
     accuracy: item.accuracy,
     status: item.status,
     department: item.department,
-    last_login: new Date().toISOString(),
+    last_login: item.lastLogin || new Date().toISOString(),
     location_source: item.locationSource,
-    has_location: Number.isFinite(item.lat) && Number.isFinite(item.lng),
+    has_location: item.hasLocation ?? (Number.isFinite(item.lat) && Number.isFinite(item.lng)),
+    kind: item.kind,
+    assigned_to: item.assignedTo ?? undefined,
+    map_status: item.mapStatus,
+    zone_status: item.zoneStatus,
+    serial_number: item.serialNumber,
 });
 
 export const TrackingMap = () => {
@@ -77,10 +99,13 @@ export const TrackingMap = () => {
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [gpsAccuracy, setGpsAccuracy] = useState<number | null>(null);
+    const [gpsFixing, setGpsFixing] = useState(false);
     const [manualPickMode, setManualPickMode] = useState(isDesktopDevice());
     const [selectedEquipmentId, setSelectedEquipmentId] = useState<string | null>(null);
     const [focusTarget, setFocusTarget] = useState<{ id: string; lat: number; lng: number; tick: number } | null>(null);
     const [gpsUnavailableHint, setGpsUnavailableHint] = useState<string | null>(null);
+    const [liveStats, setLiveStats] = useState({ online: 0, located: 0 });
+    const [superAdminPerimeter, setSuperAdminPerimeter] = useState<SuperAdminPerimeter | null>(null);
     const mapSectionRef = useRef<HTMLDivElement>(null);
     const isDesktop = isDesktopDevice();
     const locationProfile = getLocationProfile();
@@ -122,7 +147,12 @@ export const TrackingMap = () => {
                 lat: Number(eq.lat),
                 lng: Number(eq.lng),
                 accuracy: eq.accuracy,
-                status: eq.status || 'ONLINE'
+                status: eq.status || 'ONLINE',
+                mapStatus: eq.map_status,
+                zoneStatus: eq.zone_status,
+                department: eq.department,
+                assignedTo: eq.assigned_to,
+                serialNumber: eq.serial_number ?? undefined,
             }));
 
         const signature = buildPositionSignature(mappedEquipments);
@@ -158,10 +188,33 @@ export const TrackingMap = () => {
     const fetchEquipments = async (withGpsSync = true) => {
         try {
             setError(null);
-            const tracked = withGpsSync
-                ? await refreshTrackedLocations()
-                : await fetchTrackedEquipments();
-            applyTrackedData(tracked);
+            const role = authService.getCurrentUser()?.role;
+            const normalizedRole =
+                role === 'ADMIN_GENERAL' ? 'SUPER_ADMIN'
+                : role === 'ADMIN_DEPT' ? 'DEPT_ADMIN'
+                : role === 'SECURITY_AGENT' ? 'GARDIEN'
+                : role;
+
+            const isLiveViewer = ['SUPER_ADMIN', 'DEPT_ADMIN', 'SUPERVISOR', 'GARDIEN'].includes(normalizedRole || '');
+
+            if (withGpsSync && !isLiveViewer) {
+                await refreshTrackedLocations().then(applyTrackedData);
+                return;
+            }
+
+            if (withGpsSync) {
+                await syncMyDevicePositions().catch(() => undefined);
+            }
+
+            if (isLiveViewer) {
+                const live = await fetchLiveTracking();
+                setLiveStats({ online: live.onlineCount, located: live.locatedCount });
+                setSuperAdminPerimeter(live.superAdminPerimeter ?? null);
+                applyTrackedData(live.items);
+            } else {
+                const tracked = await fetchTrackedEquipments();
+                applyTrackedData(tracked);
+            }
         } catch (err: any) {
             const apiMessage = err?.response?.data?.message;
             setError(apiMessage || err?.message || 'Erreur de télémétrie');
@@ -198,15 +251,17 @@ export const TrackingMap = () => {
 
                 lastSyncedPositionRef.current = { lat: position.lat, lng: position.lng };
                 await syncMyDevicePositions(position);
-                const tracked = await fetchTrackedEquipments();
-                applyTrackedData(tracked);
+                const live = await fetchLiveTracking();
+                setLiveStats({ online: live.onlineCount, located: live.locatedCount });
+                setSuperAdminPerimeter(live.superAdminPerimeter ?? null);
+                applyTrackedData(live.items);
             }, 5000);
         }, {
             minAccuracyM: locationProfile.watchMinAccuracyM,
             minMoveM: locationProfile.syncMinMoveM,
         });
 
-        const interval = setInterval(() => fetchEquipments(false), 30000);
+        const interval = setInterval(() => fetchEquipments(false), 15000);
 
         return () => {
             stopWatch();
@@ -221,14 +276,38 @@ export const TrackingMap = () => {
         const manual = createManualPosition(lat, lng);
         setGpsAccuracy(manual.accuracy ?? 5);
         await syncMyDevicePositions(manual);
-        const tracked = await fetchTrackedEquipments();
-        applyTrackedData(tracked);
+        await fetchEquipments(false);
     };
 
     const handleRefresh = async () => {
         setIsRefreshing(true);
         await fetchEquipments(true);
         setTimeout(() => setIsRefreshing(false), 500);
+    };
+
+    const handleMyGpsPosition = async () => {
+        setGpsFixing(true);
+        setGpsUnavailableHint(null);
+        try {
+            const position = await getFreshBrowserLocation();
+            if (!position) {
+                setGpsUnavailableHint('GPS indisponible — autorisez la localisation dans le navigateur.');
+                return;
+            }
+            setGpsAccuracy(position.accuracy ?? null);
+            await syncMyDevicePositions(position);
+            const live = await fetchLiveTracking();
+            setLiveStats({ online: live.onlineCount, located: live.locatedCount });
+            setSuperAdminPerimeter(live.superAdminPerimeter ?? null);
+            applyTrackedData(live.items);
+            if ((position.accuracy ?? 999) > 80 && isMobileWeb()) {
+                setGpsUnavailableHint(
+                    `Position enregistrée (${describeAccuracy(position.accuracy)}). Sortez à l'extérieur pour améliorer le signal.`
+                );
+            }
+        } finally {
+            setGpsFixing(false);
+        }
     };
 
     return (
@@ -241,8 +320,18 @@ export const TrackingMap = () => {
                         Surveillance
                     </h2>
                     <p className="text-slate-400 mt-1 uppercase text-[10px] tracking-[0.2em] font-black italic">
-                        Sentinel Global Tracking
+                        Appareils connectés — positions en temps réel
                     </p>
+                    {liveStats.online > 0 ? (
+                        <p className="text-[10px] text-emerald-400 mt-2 font-bold uppercase tracking-widest">
+                            {liveStats.located} / {liveStats.online} connecté(s) localisé(s) sur la carte
+                        </p>
+                    ) : null}
+                    {superAdminPerimeter?.configured ? (
+                        <p className="text-[10px] text-blue-400 mt-1 font-bold uppercase tracking-widest">
+                            Périmètre fixe 10 m — {superAdminPerimeter.center_lat?.toFixed(6)} / {superAdminPerimeter.center_lng?.toFixed(5)}
+                        </p>
+                    ) : null}
                 </div>
 
                 <div className="flex items-center gap-2 bg-[#0a0f1d] p-1 border border-white/5 rounded-lg w-full lg:w-auto">
@@ -297,6 +386,32 @@ export const TrackingMap = () => {
                 </div>
             )}
 
+            {isMobileWeb() && (
+                <div className="pro-card p-4 border-blue-500/30 bg-blue-500/[0.04] flex flex-col sm:flex-row sm:items-center gap-4">
+                    <div className="flex items-start gap-3 flex-1">
+                        <Navigation className="w-5 h-5 text-blue-400 shrink-0 mt-0.5" />
+                        <div>
+                            <p className="text-[11px] font-black text-blue-300 uppercase tracking-widest">
+                                GPS mobile — haute précision
+                            </p>
+                            <p className="text-[10px] text-slate-400 mt-1 leading-relaxed">
+                                Autorisez la localisation, activez le GPS du téléphone et utilisez Chrome/Safari.
+                                {gpsAccuracy ? ` Précision actuelle : ${describeAccuracy(gpsAccuracy)}.` : ''}
+                            </p>
+                        </div>
+                    </div>
+                    <button
+                        type="button"
+                        onClick={handleMyGpsPosition}
+                        disabled={gpsFixing}
+                        className="shrink-0 flex items-center gap-2 px-4 py-2 rounded text-[10px] font-black uppercase tracking-widest bg-blue-600 text-white hover:bg-blue-500 disabled:opacity-50"
+                    >
+                        {gpsFixing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <LocateFixed className="w-3.5 h-3.5" />}
+                        Ma position GPS
+                    </button>
+                </div>
+            )}
+
             {/* Map Monitor Terminal */}
             <div
                 ref={mapSectionRef}
@@ -330,6 +445,7 @@ export const TrackingMap = () => {
                                 onManualPosition={handleManualPosition}
                                 focusTarget={focusTarget}
                                 selectedId={selectedEquipmentId}
+                                superAdminPerimeter={superAdminPerimeter}
                             />
                         </div>
                     ) : (
@@ -376,7 +492,9 @@ export const TrackingMap = () => {
                             <span className="text-[8px] font-black text-slate-500 tracking-tighter">GPS</span>
                             <div className="w-1.5 h-1.5 rounded-full bg-blue-500"></div>
                             {gpsAccuracy ? (
-                                <span className="text-[7px] font-mono text-blue-400">±{Math.round(gpsAccuracy)}m</span>
+                                <span className="text-[7px] font-mono text-blue-400 text-center leading-tight">
+                                    {describeAccuracy(gpsAccuracy)}
+                                </span>
                             ) : null}
                         </div>
                     </div>
@@ -412,6 +530,11 @@ export const TrackingMap = () => {
                 Cliquez sur un matériel avec GPS pour afficher sa position sur la carte
             </p>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pt-2">
+                {connectedUsers.length === 0 && !isLoading ? (
+                    <div className="col-span-full pro-card p-6 text-center text-slate-500 text-[10px] uppercase tracking-widest">
+                        Aucun appareil connecté dans les dernières 8 heures
+                    </div>
+                ) : null}
                 {connectedUsers.map((eq, i) => {
                     const hasGps = Number.isFinite(eq.lat) && Number.isFinite(eq.lng);
                     const isSelected = selectedEquipmentId === eq.id;
@@ -437,7 +560,19 @@ export const TrackingMap = () => {
                             </div>
                             <div>
                                 <p className="text-[10px] font-black text-white uppercase tracking-tight">{eq.name}</p>
-                                <p className="text-[8px] font-mono text-slate-500 uppercase tracking-tighter">ID_{eq.id.substring(0,8)}</p>
+                                <p className="text-[8px] font-mono text-slate-500 uppercase tracking-tighter">
+                                    {eq.kind === 'device' && eq.assigned_to
+                                        ? `Opérateur: ${eq.assigned_to}`
+                                        : `ID_${eq.id.substring(0, 8)}`}
+                                </p>
+                                <span className="inline-block mt-1 px-1.5 py-0.5 rounded text-[7px] font-black uppercase bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                                    Connecté
+                                </span>
+                                {eq.map_status ? (
+                                    <span className={`inline-block mt-1 ml-1 px-1.5 py-0.5 rounded text-[7px] font-black uppercase border ${MAP_STATUS_COLORS[eq.map_status] || ''}`}>
+                                        {MAP_STATUS_LABELS[eq.map_status] || eq.map_status}
+                                    </span>
+                                ) : null}
                             </div>
                         </div>
                         <div className="text-right">

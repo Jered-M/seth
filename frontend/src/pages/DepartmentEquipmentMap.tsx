@@ -15,7 +15,7 @@ import {
     Wifi
 } from 'lucide-react';
 import Map2D from '../components/Map2D';
-import { refreshTrackedLocations } from '../services/locationService';
+import { fetchLiveTracking, fetchTrackedEquipments } from '../services/locationService';
 
 interface EquipmentData {
     id: string;
@@ -45,10 +45,14 @@ export const DepartmentEquipmentMap = () => {
     const [error, setError] = useState<string | null>(null);
     const [selectedEquipment, setSelectedEquipment] = useState<EquipmentData | null>(null);
 
+    const [liveStats, setLiveStats] = useState({ online: 0, located: 0 });
+
     const fetchDepartmentEquipments = async () => {
         try {
             setError(null);
-            const tracked = await refreshTrackedLocations();
+            const live = await fetchLiveTracking();
+            setLiveStats({ online: live.onlineCount, located: live.locatedCount });
+            const tracked = live.items.length > 0 ? live.items : await fetchTrackedEquipments();
 
             const mappedData: EquipmentData[] = tracked.map((item) => ({
                 id: item.id,
@@ -121,8 +125,13 @@ export const DepartmentEquipmentMap = () => {
                         Relais de Zone Départemental
                     </h2>
                     <p className="text-slate-400 mt-1 uppercase text-[10px] tracking-[0.2em] font-black italic">
-                        Sentinel Network // Node_Map_Terminal_S4
+                        Sentinel Network // Appareils connectés
                     </p>
+                    {liveStats.online > 0 ? (
+                        <p className="text-[10px] text-emerald-400 mt-2 font-bold uppercase tracking-widest">
+                            {liveStats.located} / {liveStats.online} connecté(s) sur la carte
+                        </p>
+                    ) : null}
                 </div>
 
                 <div className="flex items-center gap-4">

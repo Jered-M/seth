@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion'
 import api from '../services/api';
-import { refreshTrackedLocations } from '../services/locationService';
+import { refreshTrackedLocations, startLocationWatch, syncMyDevicePositions } from '../services/locationService';
 import {
     Monitor,
     Clock,
@@ -80,7 +80,17 @@ export const UserDashboard = () => {
 
     useEffect(() => {
         const interval = setInterval(fetchUserData, 30000);
-        return () => clearInterval(interval);
+        const stopWatch = startLocationWatch(async () => {
+            try {
+                await syncMyDevicePositions();
+            } catch (err) {
+                console.error('Erreur sync GPS:', err);
+            }
+        });
+        return () => {
+            clearInterval(interval);
+            stopWatch();
+        };
     }, []);
 
     const getStatusStyles = (status: string) => {

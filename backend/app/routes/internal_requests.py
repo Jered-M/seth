@@ -3,6 +3,7 @@ from flask_jwt_extended import get_jwt_identity, jwt_required
 
 from app.middleware.rbac import role_required
 from app.models.security_models import Device, InternalRequest, RequestStatus, RoleName, User
+from app.database import db
 from app.services.workflow_service import WorkflowService
 
 requests_bp = Blueprint("internal_requests", __name__)
@@ -83,7 +84,6 @@ def pending_global():
 @jwt_required()
 @role_required([RoleName.SECURITY_AGENT])
 def pending_security():
-    """Demandes validées par les admins — en attente de contrôle sortie matériel."""
     rows = InternalRequest.query.filter_by(status=RequestStatus.PENDING_SECURITY).order_by(
         InternalRequest.created_at.desc()
     ).all()
@@ -140,7 +140,10 @@ def confirm_exit(request_id):
     if not req:
         return jsonify({"message": "Demande introuvable"}), 404
     try:
-        WorkflowService.confirm_physical_exit(req, agent, (request.json or {}).get("comment"))
+        data = request.json or {}
+        WorkflowService.confirm_physical_exit(
+            req, agent, data.get("comment"), data.get("agent_location")
+        )
         return jsonify(_serialize(req)), 200
     except (ValueError, PermissionError) as exc:
         return jsonify({"message": str(exc)}), 400
@@ -156,7 +159,36 @@ def deny_exit(request_id):
         return jsonify({"message": "Demande introuvable"}), 404
     comment = (request.json or {}).get("comment")
     try:
-        WorkflowService.deny_physical_exit(req, agent, comment)
+        WorkflowService.deny_physical_exit(
+            req, agent, comment, (request.json or {}).get("agent_location")
+        )
+        return jsonify(_serialize(req)), 200
+    except (ValueError, PermissionError) as exc:
+        return jsonify({"message": str(exc)}), 400
+
+
+@requests_bp.route("/<request_id>/force-confirm-exit", methods=["POST"])
+@jwt_required()
+@role_required([RoleName.SUPER_ADMIN])
+def force_confirm_exit(request_id):
+    """Admin général — valide ou restitue une sortie si l'agent n'a pas été notifié."""
+    actor = User.query.get(get_jwt_identity())
+    req = InternalRequest.query.get(request_id)
+    if not req:
+        return jsonify({"message": "Demande introuvable"}), 404
+    if req.status not in {RequestStatus.PENDING_SECURITY, RequestStatus.PENDING_GENERAL}:
+        return jsonify({"message": "Demande non éligible à la validation forcée"}), 400
+    try:
+        data = request.json or {}
+        if req.status == RequestStatus.PENDING_GENERAL:
+            WorkflowService.approve_request(req, actor, data.get("comment", "Validation forcée admin général"))
+            db.session.refresh(req)
+        WorkflowService.confirm_physical_exit(
+            req,
+            actor,
+            data.get("comment", "Restitution / sortie validée par admin général"),
+            data.get("agent_location"),
+        )
         return jsonify(_serialize(req)), 200
     except (ValueError, PermissionError) as exc:
         return jsonify({"message": str(exc)}), 400

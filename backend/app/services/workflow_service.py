@@ -16,33 +16,92 @@ from app.models.security_models import (
     User,
     UserSession,
 )
+from app.services.security_service import SecurityService
 
 
 class WorkflowService:
     @staticmethod
-    def _notify_security_agents(request: InternalRequest, title: str, notif_type: str):
-        agents = User.query.join(Role).filter(Role.name == RoleName.SECURITY_AGENT).all()
-        for agent in agents:
-            WorkflowService._notify(
-                agent.id,
-                notif_type,
-                title,
-                {
-                    "request_id": request.id,
-                    "department_id": request.department_id,
-                    "device_id": request.device_id,
-                    "title": request.title,
-                },
-            )
+    def _security_agent_users():
+        return User.query.join(Role).filter(Role.name == RoleName.SECURITY_AGENT).all()
+
+    @staticmethod
+    def _notify_security_agents(request: InternalRequest, title: str, notif_type: str, extra: dict | None = None):
+        author = User.query.get(request.user_id)
+        dept_name = request.department.name if request.department else None
+        payload = {
+            "request_id": request.id,
+            "department_id": request.department_id,
+            "department": dept_name,
+            "device_id": request.device_id,
+            "title": request.title,
+            "message": f"{author.username if author else 'Utilisateur'} — {request.title}",
+            **(extra or {}),
+        }
+        for agent in WorkflowService._security_agent_users():
+            WorkflowService._notify(agent.id, notif_type, title, payload)
+
+    @staticmethod
+    def dispatch_alert_notifications(alert: SecurityAlert, title: str, exclude_user_id: str | None = None):
+        """Diffuse une alerte/signalement aux agents sécurité, admins dept et admin général."""
+        reporter = User.query.get(alert.user_id) if alert.user_id else None
+        dept_name = reporter.department.name if reporter and reporter.department else None
+        payload = {
+            "alert_id": alert.id,
+            "alert_type": alert.type,
+            "message": alert.message,
+            "department_id": alert.department_id,
+            "department": dept_name,
+            "reporter": reporter.username if reporter else None,
+        }
+
+        def _should_notify(user_id: str) -> bool:
+            return not exclude_user_id or user_id != exclude_user_id
+
+        for agent in WorkflowService._security_agent_users():
+            if _should_notify(agent.id):
+                WorkflowService._notify(agent.id, "SECURITY_ALERT", title, payload)
+
+        if alert.department_id:
+            for admin in User.query.filter_by(department_id=alert.department_id).all():
+                if (
+                    admin.role
+                    and admin.role.name in {RoleName.DEPT_ADMIN, "ADMIN_DEPT"}
+                    and _should_notify(admin.id)
+                ):
+                    WorkflowService._notify(admin.id, "SECURITY_ALERT", title, payload)
+
+        for admin in User.query.join(Role).filter(Role.name.in_([RoleName.SUPER_ADMIN, "ADMIN_GENERAL"])).all():
+            if _should_notify(admin.id):
+                WorkflowService._notify(admin.id, "SECURITY_ALERT", title, payload)
+
+    @staticmethod
+    def _notify_exit_event(request: InternalRequest, notif_type: str, title: str, message: str, extra: dict | None = None):
+        """Notifie agents sécurité + admins lors d'un événement de sortie."""
+        payload = {
+            "request_id": request.id,
+            "department_id": request.department_id,
+            "device_id": request.device_id,
+            "message": message,
+            **(extra or {}),
+        }
+        WorkflowService._notify_security_agents(request, title, notif_type, {"message": message, **(extra or {})})
+
+        for admin in User.query.filter_by(department_id=request.department_id).all():
+            if admin.role and admin.role.name in {RoleName.DEPT_ADMIN, "ADMIN_DEPT"}:
+                WorkflowService._notify(admin.id, notif_type, title, payload)
+
+        for sa in User.query.join(Role).filter(Role.name.in_([RoleName.SUPER_ADMIN, "ADMIN_GENERAL"])).all():
+            WorkflowService._notify(sa.id, notif_type, title, payload)
     @staticmethod
     def _notify(user_id: str, notif_type: str, title: str, payload: dict):
         notification = Notification(
             user_id=user_id,
             type=notif_type,
             title=title,
-            payload_json=json.dumps(payload),
+            payload_json=json.dumps(payload, ensure_ascii=False),
         )
         db.session.add(notification)
+        db.session.commit()
 
     @staticmethod
     def _event(request_id: str, actor_id: str, level: str, action: str, comment: str | None = None):
@@ -173,11 +232,11 @@ class WorkflowService:
         db.session.commit()
 
     @staticmethod
-    def confirm_physical_exit(request: InternalRequest, agent: User, comment: str | None = None):
+    def confirm_physical_exit(request: InternalRequest, agent: User, comment: str | None = None, agent_location: dict | None = None):
         if request.status != RequestStatus.PENDING_SECURITY:
             raise ValueError("Demande non éligible au contrôle sécurité")
-        if not agent.role or agent.role.name != RoleName.SECURITY_AGENT:
-            raise PermissionError("Réservé à l'agent de sécurité")
+        if not agent.role or agent.role.name not in {RoleName.SECURITY_AGENT, RoleName.SUPER_ADMIN, "ADMIN_GENERAL"}:
+            raise PermissionError("Réservé à l'agent de sécurité ou admin général")
 
         request.status = RequestStatus.COMPLETED
         request.security_reviewer_id = agent.id
@@ -190,17 +249,43 @@ class WorkflowService:
             if device:
                 device.status = "OUT"
 
-        WorkflowService._notify(
-            request.user_id,
-            "REQUEST_COMPLETED",
-            "Sortie matériel autorisée et enregistrée",
-            {"request_id": request.id},
+        exit_details = {
+            "message": "Passage autorisé — sortie matériel",
+            "request_id": request.id,
+            "device_id": request.device_id,
+            "agent_location": agent_location,
+        }
+        SecurityService.log_event(
+            agent.id,
+            "EXIT_AUTHORIZED",
+            json.dumps(exit_details),
+            "127.0.0.1",
+            "security-agent",
+            department_id=request.department_id,
         )
+
+        author = User.query.get(request.user_id)
+        if author:
+            WorkflowService._notify(
+                request.user_id,
+                "REQUEST_COMPLETED",
+                "Sortie matériel autorisée au poste sécurité",
+                {"request_id": request.id, "message": "Passage autorisé — sortie matériel"},
+            )
+            exit_msg = f"Sortie autorisée — {author.username}"
+            WorkflowService._notify_exit_event(
+                request,
+                "EXIT_AUTHORIZED",
+                exit_msg,
+                exit_msg,
+                exit_details,
+            )
+
         request.updated_at = datetime.utcnow()
         db.session.commit()
 
     @staticmethod
-    def deny_physical_exit(request: InternalRequest, agent: User, comment: str):
+    def deny_physical_exit(request: InternalRequest, agent: User, comment: str, agent_location: dict | None = None):
         if not comment:
             raise ValueError("Motif obligatoire")
         if request.status != RequestStatus.PENDING_SECURITY:
@@ -212,11 +297,47 @@ class WorkflowService:
         request.security_reviewer_id = agent.id
         request.security_comment = comment
         WorkflowService._event(request.id, agent.id, "SECURITY", "DENY_EXIT", comment)
+
+        deny_details = {
+            "message": f"Sortie refusée — {comment}",
+            "request_id": request.id,
+            "agent_location": agent_location,
+        }
+        SecurityService.log_event(
+            agent.id,
+            "EXIT_DENIED",
+            json.dumps(deny_details),
+            "127.0.0.1",
+            "security-agent",
+            status="ALERT",
+            risk_score=70,
+            department_id=request.department_id,
+        )
+        SecurityService.log_event(
+            request.user_id,
+            "FRAUDULENT_EXIT",
+            json.dumps(deny_details),
+            "127.0.0.1",
+            "security-agent",
+            status="ALERT",
+            risk_score=80,
+            department_id=request.department_id,
+        )
+
+        deny_title = "Sortie matériel refusée au poste de sécurité"
+        deny_msg = f"Sortie refusée — {comment}"
         WorkflowService._notify(
             request.user_id,
             "REQUEST_DENIED_SECURITY",
-            "Sortie matériel refusée au poste de sécurité",
-            {"request_id": request.id, "comment": comment},
+            deny_title,
+            {"request_id": request.id, "comment": comment, "message": deny_msg},
+        )
+        WorkflowService._notify_exit_event(
+            request,
+            "REQUEST_DENIED_SECURITY",
+            deny_title,
+            deny_msg,
+            {"comment": comment, **deny_details},
         )
         request.updated_at = datetime.utcnow()
         db.session.commit()
@@ -242,24 +363,11 @@ class SecurityWorkflowService:
         )
         db.session.add(incident)
 
-        dept_admins = User.query.filter_by(department_id=department_id).all()
-        for admin in dept_admins:
-            if admin.role and admin.role.name == RoleName.DEPT_ADMIN:
-                WorkflowService._notify(
-                    admin.id,
-                    "SECURITY_ALERT",
-                    "Alerte sécurité département",
-                    {"alert_id": alert.id, "severity": severity},
-                )
-
-        super_admins = User.query.join(Role).filter(Role.name == RoleName.SUPER_ADMIN).all()
-        for admin in super_admins:
-            WorkflowService._notify(
-                admin.id,
-                "SECURITY_ALERT",
-                "Alerte sécurité globale",
-                {"alert_id": alert.id, "severity": severity},
-            )
+        WorkflowService.dispatch_alert_notifications(
+            alert,
+            f"Alerte sécurité — {message[:80]}",
+            exclude_user_id=agent.id,
+        )
 
         db.session.commit()
         return alert, incident
@@ -267,15 +375,18 @@ class SecurityWorkflowService:
 
 class SessionService:
     @staticmethod
-    def open_session(user: User, ip: str, user_agent: str, location: dict | None, machine_fingerprint: str | None):
+    def open_session(user: User, ip: str, user_agent: str, location: dict | None, machine_fingerprint: str | None, in_zone: bool | None = None):
         site_status = "UNKNOWN"
         lat = lng = accuracy = None
         if isinstance(location, dict):
             lat = location.get("lat")
             lng = location.get("lng")
             accuracy = location.get("accuracy")
-            # Geofencing simplifié — brancher SecurityService.check_geofencing en prod
-            site_status = "ON_SITE" if lat and lng else "UNKNOWN"
+            if in_zone is not None:
+                site_status = "ON_SITE" if in_zone else "OFF_SITE"
+            elif lat and lng:
+                zone = SecurityService.check_point_in_zone(lat, lng, user.department_id)
+                site_status = "ON_SITE" if zone["in_zone"] else "OFF_SITE"
 
         session = UserSession(
             user_id=user.id,

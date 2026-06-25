@@ -1,5 +1,5 @@
 import api from './api';
-import { getBestBrowserLocation } from './locationService';
+import { getLoginBrowserLocation } from './locationService';
 
 export interface LoginCredentials {
     email: string;
@@ -29,11 +29,7 @@ export interface LoginResponse {
 export const authService = {
     async login(credentials: LoginCredentials): Promise<LoginResponse> {
         try {
-            // GPS en parallèle — ne bloque pas la connexion (max 3 s)
-            const location = await Promise.race([
-                getBestBrowserLocation({ maxWaitMs: 3000, targetAccuracyM: 150 }),
-                new Promise<null>((resolve) => setTimeout(() => resolve(null), 3000)),
-            ]);
+            const location = await getLoginBrowserLocation();
 
             const response = await api.post('/auth/login', {
                 ...credentials,

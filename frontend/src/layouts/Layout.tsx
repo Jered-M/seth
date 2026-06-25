@@ -5,7 +5,6 @@ import {
     Monitor,
     Users,
     LogOut,
-    Bell,
     Search,
     LocateFixed,
     Building2,
@@ -16,8 +15,10 @@ import {
     Menu,
     X
 } from 'lucide-react'
+import { NotificationBell } from '../components/NotificationBell'
 
 interface User {
+    id?: string;
     name: string;
     role: string;
 }
@@ -38,7 +39,7 @@ export const Layout = ({ user, onLogout }: LayoutProps) => {
         { icon: Users, label: 'Utilisateurs', path: '/users', roles: ['SUPER_ADMIN', 'DEPT_ADMIN'] },
         { icon: Building2, label: 'Départements', path: '/admin-departments', roles: ['SUPER_ADMIN'] },
         { icon: Monitor, label: 'Équipements', path: '/equipments', roles: ['SUPER_ADMIN', 'DEPT_ADMIN', 'SUPERVISOR'] },
-        { icon: LocateFixed, label: 'Localisation', path: '/tracking', roles: ['SUPER_ADMIN', 'DEPT_ADMIN', 'SUPERVISOR'] },
+        { icon: LocateFixed, label: 'Localisation', path: '/tracking', roles: ['SUPER_ADMIN', 'DEPT_ADMIN', 'SUPERVISOR', 'GARDIEN'] },
         { icon: FileCheck, label: 'Autorisations', path: '/guardian', roles: ['GARDIEN', 'DEPT_ADMIN'] },
         { icon: ShieldAlert, label: 'Alertes', path: '/alerts', roles: ['SUPER_ADMIN', 'DEPT_ADMIN', 'SUPERVISOR'] },
         { icon: ClipboardList, label: 'Logs', path: '/logs', roles: ['SUPER_ADMIN', 'DEPT_ADMIN'] },
@@ -136,10 +137,7 @@ export const Layout = ({ user, onLogout }: LayoutProps) => {
                     </div>
 
                     <div className="flex items-center gap-3 lg:gap-6">
-                        <button title="Notifications" className="relative p-2 text-slate-400 hover:text-white transition-colors">
-                            <Bell className="w-5 h-5" />
-                            <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full border border-[#0a0f1d] animate-pulse"></span>
-                        </button>
+                        <NotificationBell userId={user.id} />
                         
                         <div className="hidden sm:block h-4 w-[1px] bg-white/10"></div>
                         

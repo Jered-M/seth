@@ -18,7 +18,7 @@ export const useRealtimeChannel = (
 
         const interval = setInterval(() => {
             onEvent({ channel, ts: Date.now() });
-        }, 30000);
+        }, 5000);
 
         return () => clearInterval(interval);
     }, [channel, enabled, onEvent]);

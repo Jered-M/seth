@@ -87,6 +87,7 @@ def init_db(app):
             _migrate_device_location_fields()
             _migrate_internal_request_fields()
             _migrate_security_alert_fields()
+            _ensure_super_admin_perimeter_zone()
             print("[OK] Base de données initialisée (create_all executed)")
     except Exception as e:
         print(f"[CRITICAL ERROR] IN INIT_DB: {e}")
@@ -162,6 +163,18 @@ def _migrate_security_alert_fields():
     except Exception as exc:
         db.session.rollback()
         print(f"[WARN] Migration alertes ignorée: {exc}")
+
+
+def _ensure_super_admin_perimeter_zone():
+    """Zone périmètre 10 m autour du PC super admin."""
+    try:
+        from app.services.security_service import SecurityService
+        SecurityService.ensure_super_admin_perimeter_zone()
+        print("[OK] Périmètre super admin (10 m) prêt")
+    except Exception as exc:
+        db.session.rollback()
+        print(f"[WARN] Périmètre super admin ignoré: {exc}")
+
 
 def get_db_connection():
     """Retourne une connexion brute à la base de données (pour compatibilité)."""

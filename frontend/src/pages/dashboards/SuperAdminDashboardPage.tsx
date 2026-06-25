@@ -5,6 +5,7 @@ import { LivePresenceMap } from '../../features/admin/LivePresenceMap';
 import { AuditModeBanner } from '../../features/admin/AuditModeBanner';
 import { RequestApprovalActions } from '../../features/requests/RequestApprovalActions';
 import { StatCard } from '../../features/shared/StatCard';
+import { PassageHistoryPanel } from '../../features/tracking/PassageHistoryPanel';
 import { InternalRequest, requestService } from '../../services/requestService';
 import { departmentService } from '../../services/departmentService';
 
@@ -12,7 +13,7 @@ export const SuperAdminDashboardPage = () => {
     const [pendingGlobal, setPendingGlobal] = useState<InternalRequest[]>([]);
     const [kpis, setKpis] = useState({ users: 0, departments: 0, alerts: 0 });
     const [auditUser, setAuditUser] = useState<{ name: string; email: string } | null>(null);
-    const [tab, setTab] = useState<'overview' | 'map' | 'audit'>('overview');
+    const [tab, setTab] = useState<'overview' | 'map' | 'history' | 'audit'>('overview');
 
     const load = async () => {
         try {
@@ -46,7 +47,7 @@ export const SuperAdminDashboardPage = () => {
                     <p className="text-xs text-slate-400 mt-1">KPIs · Validation finale · Carte live · Mode audit</p>
                 </div>
                 <div className="flex gap-2">
-                    {(['overview', 'map', 'audit'] as const).map((key) => (
+                    {(['overview', 'map', 'history', 'audit'] as const).map((key) => (
                         <button
                             key={key}
                             type="button"
@@ -55,7 +56,7 @@ export const SuperAdminDashboardPage = () => {
                                 tab === key ? 'bg-blue-600 text-white' : 'bg-[#0a0f1d] text-slate-400 border border-white/10'
                             }`}
                         >
-                            {key === 'overview' ? 'Vue d\'ensemble' : key === 'map' ? 'Localisation' : 'Audit'}
+                            {key === 'overview' ? 'Vue d\'ensemble' : key === 'map' ? 'Localisation' : key === 'history' ? 'Historique' : 'Audit'}
                         </button>
                     ))}
                 </div>
@@ -77,6 +78,19 @@ export const SuperAdminDashboardPage = () => {
             )}
 
             {tab === 'map' && <LivePresenceMap />}
+
+            {tab === 'history' && (
+                <section className="space-y-4">
+                    <h2 className="text-sm font-black uppercase tracking-widest text-white">Historique passages & présence</h2>
+                    <PassageHistoryPanel />
+                    <div className="pro-card p-4 border border-blue-500/20">
+                        <p className="text-xs text-slate-400">
+                            Validation forcée : si une sortie est approuvée mais l&apos;agent sécurité n&apos;a pas été notifié,
+                            validez depuis la file « Validation finale » puis utilisez l&apos;API force-confirm sur la demande concernée.
+                        </p>
+                    </div>
+                </section>
+            )}
 
             {tab === 'audit' && (
                 <div className="pro-card p-8 border border-amber-500/30 space-y-4">

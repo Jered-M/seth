@@ -11,6 +11,10 @@ import {
 } from 'react-leaflet';
 import L from 'leaflet';
 import {
+    MAP_STATUS_COLORS,
+    MAP_STATUS_LABELS,
+} from '../services/trackingService';
+import {
     isMapViewportLocked,
     lockMapViewport,
     markInitialAutoFitDone,
@@ -38,6 +42,13 @@ export interface EquipmentPosition {
     lng: number;
     accuracy?: number | null;
     status: string;
+    mapStatus?: string;
+    zoneStatus?: string;
+    department?: string;
+    assignedTo?: string;
+    serialNumber?: string;
+    deviceStatus?: string;
+    exitRequestStatus?: string;
 }
 
 interface Map2DProps {
@@ -46,6 +57,12 @@ interface Map2DProps {
     onManualPosition?: (lat: number, lng: number) => void;
     focusTarget?: { id: string; lat: number; lng: number; tick: number } | null;
     selectedId?: string | null;
+    superAdminPerimeter?: {
+        configured: boolean;
+        center_lat?: number | null;
+        center_lng?: number | null;
+        radius_m?: number;
+    } | null;
 }
 
 const MapUserInteractionLock: React.FC = () => {
@@ -133,24 +150,37 @@ const EquipmentMarker: React.FC<{ equipment: EquipmentPosition; isSelected?: boo
                 ) : null}
                 <Marker ref={markerRef} position={[eq.lat, eq.lng]} icon={icon}>
                     <Popup>
-                        <div className="p-2">
+                        <div className="p-2 min-w-[200px]">
                             <h3 className="font-bold text-gray-900">{eq.name}</h3>
+                            {eq.serialNumber ? (
+                                <p className="text-[10px] text-gray-500 font-mono">SN: {eq.serialNumber}</p>
+                            ) : null}
                             <p className="text-sm text-gray-500">{eq.type}</p>
+                            {eq.assignedTo ? (
+                                <p className="text-xs text-gray-600 mt-1">Opérateur: {eq.assignedTo}</p>
+                            ) : null}
+                            {eq.department ? (
+                                <p className="text-xs text-gray-600">Département: {eq.department}</p>
+                            ) : null}
                             {eq.accuracy ? (
                                 <p className="text-xs text-gray-500 mt-1">
                                     Précision: ±{Math.round(eq.accuracy)} m
                                 </p>
                             ) : null}
-                            <div className="mt-2 text-xs font-semibold uppercase">
-                                Statut:{' '}
-                                <span
-                                    className={
-                                        eq.status === 'AVAILABLE' ? 'text-green-600' : 'text-orange-600'
-                                    }
-                                >
-                                    {eq.status}
-                                </span>
-                            </div>
+                            <p className="text-xs font-mono text-gray-500 mt-1">
+                                {eq.lat.toFixed(6)} / {eq.lng.toFixed(6)}
+                            </p>
+                            {eq.mapStatus ? (
+                                <p className={`mt-2 text-[10px] font-bold uppercase px-2 py-1 rounded inline-block ${MAP_STATUS_COLORS[eq.mapStatus] || ''}`}>
+                                    {MAP_STATUS_LABELS[eq.mapStatus] || eq.mapStatus}
+                                </p>
+                            ) : null}
+                            {eq.zoneStatus ? (
+                                <p className={`text-[10px] mt-1 ${eq.zoneStatus === 'IN_ZONE' ? 'text-green-600' : 'text-red-600'}`}>
+                                    {eq.zoneStatus === 'IN_ZONE' ? 'Dans la zone autorisée' : 'Hors zone'}
+                                    {eq.zoneStatus !== 'IN_ZONE' ? ' ⚠️' : ''}
+                                </p>
+                            ) : null}
                         </div>
                     </Popup>
                 </Marker>
@@ -226,6 +256,7 @@ const Map2D: React.FC<Map2DProps> = ({
     onManualPosition,
     focusTarget,
     selectedId,
+    superAdminPerimeter,
 }) => {
     const [isLoaded, setIsLoaded] = useState(false);
     const mapInstanceKey = useRef(`map-${Date.now()}`).current;
@@ -271,6 +302,21 @@ const Map2D: React.FC<Map2DProps> = ({
                     <MapInitialFit equipments={equipments} />
                     <MapFocusController focusTarget={focusTarget} />
                     <MapClickPicker enabled={manualPickEnabled} onPick={onManualPosition} />
+                    {superAdminPerimeter?.configured &&
+                    Number.isFinite(superAdminPerimeter.center_lat) &&
+                    Number.isFinite(superAdminPerimeter.center_lng) ? (
+                        <Circle
+                            center={[superAdminPerimeter.center_lat!, superAdminPerimeter.center_lng!]}
+                            radius={superAdminPerimeter.radius_m ?? 10}
+                            pathOptions={{
+                                color: '#3b82f6',
+                                fillColor: '#3b82f6',
+                                fillOpacity: 0.12,
+                                weight: 2,
+                                dashArray: '8 6',
+                            }}
+                        />
+                    ) : null}
                     <MapMarkers equipments={equipments} selectedId={selectedId} />
                 </MapContainer>
             ) : null}

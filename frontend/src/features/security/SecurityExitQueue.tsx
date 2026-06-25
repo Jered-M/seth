@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Package, LogOut, ShieldCheck, XCircle } from 'lucide-react';
 import { InternalRequest, requestService } from '../../services/requestService';
+import { getFreshBrowserLocation } from '../../services/locationService';
 import { RequestStatusBadge } from '../shared/RequestStatusBadge';
 
 interface SecurityExitQueueProps {
@@ -36,7 +37,12 @@ export const SecurityExitQueue = ({ onUpdated }: SecurityExitQueueProps) => {
     const confirm = async (id: string) => {
         setLoadingId(id);
         try {
-            await requestService.confirmExit(id, comment[id]);
+            const agentLocation = await getFreshBrowserLocation();
+            await requestService.confirmExit(
+                id,
+                comment[id],
+                agentLocation ? { lat: agentLocation.lat, lng: agentLocation.lng, accuracy: agentLocation.accuracy } : undefined
+            );
             await load();
             onUpdated?.();
         } finally {
@@ -47,7 +53,12 @@ export const SecurityExitQueue = ({ onUpdated }: SecurityExitQueueProps) => {
     const deny = async (id: string) => {
         setLoadingId(id);
         try {
-            await requestService.denyExit(id, comment[id] || 'Refus au poste de sécurité');
+            const agentLocation = await getFreshBrowserLocation();
+            await requestService.denyExit(
+                id,
+                comment[id] || 'Refus au poste de sécurité',
+                agentLocation ? { lat: agentLocation.lat, lng: agentLocation.lng, accuracy: agentLocation.accuracy } : undefined
+            );
             await load();
             onUpdated?.();
         } finally {
@@ -108,7 +119,7 @@ export const SecurityExitQueue = ({ onUpdated }: SecurityExitQueueProps) => {
                                         className="inline-flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 rounded-lg text-[10px] font-black uppercase text-white"
                                     >
                                         <ShieldCheck className="w-4 h-4" />
-                                        Autoriser la sortie
+                                        Autoriser passage
                                     </button>
                                     <button
                                         type="button"

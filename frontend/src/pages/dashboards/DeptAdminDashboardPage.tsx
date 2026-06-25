@@ -5,6 +5,7 @@ import { StatCard } from '../../features/shared/StatCard';
 import { InternalRequest, requestService } from '../../services/requestService';
 import { authService } from '../../services/authService';
 import api from '../../services/api';
+import { PassageHistoryPanel } from '../../features/tracking/PassageHistoryPanel';
 
 export const DeptAdminDashboardPage = () => {
     const [pending, setPending] = useState<InternalRequest[]>([]);
@@ -42,6 +43,11 @@ export const DeptAdminDashboardPage = () => {
                 <StatCard label="Alertes sécurité" value={alertCount} icon={ShieldAlert} tone="red" />
                 <StatCard label="Département" value={user?.department || '—'} icon={Building2} tone="blue" />
             </div>
+
+            <section className="space-y-4">
+                <h2 className="text-sm font-black uppercase tracking-widest text-white">Historique passages — département</h2>
+                <PassageHistoryPanel />
+            </section>
 
             <section className="space-y-4">
                 <h2 className="text-sm font-black uppercase tracking-widest text-white">Validation niveau 1</h2>

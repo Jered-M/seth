@@ -1,7 +1,9 @@
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from sqlalchemy import func
-from app.models.security_models import User, Role, RoleName, Department, SecurityLog, AuthorizedZone, Device, SecurityAlert, ExitRequest
+from datetime import datetime
+import json
+from app.models.security_models import User, Role, RoleName, Department, SecurityLog, AuthorizedZone, Device, SecurityAlert, ExitRequest, SecurityIncident
 # from app.services.security_service import SecurityService
 from app.middleware.rbac import super_admin_required
 from app.database import db
@@ -704,3 +706,55 @@ def delete_user(user_id):
         }), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+@admin_bp.route("/devices/<device_id>/restore", methods=["POST"])
+@jwt_required()
+@super_admin_required
+def restore_seized_device(device_id):
+    """Restitue un matériel saisi / sorti."""
+    from app.services.security_service import SecurityService
+
+    device = Device.query.get(device_id)
+    if not device:
+        return jsonify({"message": "Matériel introuvable"}), 404
+
+    data = request.json or {}
+    device.status = data.get("status", "ASSIGNED" if device.user_id else "AVAILABLE")
+
+    SecurityService.log_event(
+        get_jwt_identity(),
+        "DEVICE_RESTORED",
+        json.dumps({
+            "message": data.get("note", "Matériel restitué par admin général"),
+            "device_id": device.id,
+            "new_status": device.status,
+        }),
+        request.remote_addr,
+        request.headers.get("User-Agent") or "",
+        department_id=device.department_id,
+    )
+    return jsonify({"message": "Matériel restitué", "device_id": device.id, "status": device.status}), 200
+
+
+@admin_bp.route("/incidents/<incident_id>/resolve", methods=["POST"])
+@jwt_required()
+@super_admin_required
+def resolve_incident(incident_id):
+    """Tranche un incident de sécurité."""
+    incident = SecurityIncident.query.get(incident_id)
+    if not incident:
+        return jsonify({"message": "Incident introuvable"}), 404
+
+    data = request.json or {}
+    incident.status = "RESOLVED"
+    incident.resolution_note = data.get("note", "Résolu par admin général")
+    incident.resolved_at = datetime.utcnow()
+
+    if incident.alert_id:
+        alert = SecurityAlert.query.get(incident.alert_id)
+        if alert:
+            alert.is_resolved = True
+
+    db.session.commit()
+    return jsonify({"message": "Incident résolu", "id": incident.id}), 200
