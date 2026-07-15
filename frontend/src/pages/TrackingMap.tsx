@@ -29,7 +29,6 @@ import {
     roundCoordForStability,
     startLocationWatch,
     syncMyDevicePositions,
-    SuperAdminPerimeter,
     TrackedEquipment,
 } from '../services/locationService';
 import { authService } from '../services/authService';
@@ -111,7 +110,6 @@ export const TrackingMap = () => {
     const [focusTarget, setFocusTarget] = useState<{ id: string; lat: number; lng: number; tick: number } | null>(null);
     const [gpsUnavailableHint, setGpsUnavailableHint] = useState<string | null>(null);
     const [liveStats, setLiveStats] = useState({ online: 0, located: 0 });
-    const [superAdminPerimeter, setSuperAdminPerimeter] = useState<SuperAdminPerimeter | null>(null);
     const [adminPosition, setAdminPosition] = useState<{ lat: number; lng: number } | null>(null);
     const [routeOverlay, setRouteOverlay] = useState<RouteOverlay | null>(null);
     const [routeLoading, setRouteLoading] = useState(false);
@@ -135,16 +133,6 @@ export const TrackingMap = () => {
         const gps = await getFreshBrowserLocation();
         if (gps) return { lat: gps.lat, lng: gps.lng };
 
-        if (
-            superAdminPerimeter?.configured &&
-            Number.isFinite(superAdminPerimeter.center_lat) &&
-            Number.isFinite(superAdminPerimeter.center_lng)
-        ) {
-            return {
-                lat: Number(superAdminPerimeter.center_lat),
-                lng: Number(superAdminPerimeter.center_lng),
-            };
-        }
         return null;
     };
 
@@ -293,7 +281,6 @@ export const TrackingMap = () => {
             if (isLiveViewer) {
                 const live = await fetchLiveTracking();
                 setLiveStats({ online: live.onlineCount, located: live.locatedCount });
-                setSuperAdminPerimeter(live.superAdminPerimeter ?? null);
                 applyTrackedData(live.items);
             } else {
                 const tracked = await fetchTrackedEquipments();
@@ -337,7 +324,6 @@ export const TrackingMap = () => {
                 await syncMyDevicePositions(position);
                 const live = await fetchLiveTracking();
                 setLiveStats({ online: live.onlineCount, located: live.locatedCount });
-                setSuperAdminPerimeter(live.superAdminPerimeter ?? null);
                 applyTrackedData(live.items);
             }, 5000);
         }, {
@@ -382,7 +368,6 @@ export const TrackingMap = () => {
             await syncMyDevicePositions(position);
             const live = await fetchLiveTracking();
             setLiveStats({ online: live.onlineCount, located: live.locatedCount });
-            setSuperAdminPerimeter(live.superAdminPerimeter ?? null);
             applyTrackedData(live.items);
             if ((position.accuracy ?? 999) > 80 && isMobileWeb()) {
                 setGpsUnavailableHint(
@@ -409,11 +394,6 @@ export const TrackingMap = () => {
                     {liveStats.online > 0 ? (
                         <p className="text-[10px] text-emerald-400 mt-2 font-bold uppercase tracking-widest">
                             {liveStats.located} / {liveStats.online} connecté(s) localisé(s) sur la carte
-                        </p>
-                    ) : null}
-                    {superAdminPerimeter?.configured ? (
-                        <p className="text-[10px] text-blue-400 mt-1 font-bold uppercase tracking-widest">
-                            Périmètre fixe 10 m — {superAdminPerimeter.center_lat?.toFixed(6)} / {superAdminPerimeter.center_lng?.toFixed(5)}
                         </p>
                     ) : null}
                 </div>
@@ -580,7 +560,6 @@ export const TrackingMap = () => {
                                 onManualPosition={handleManualPosition}
                                 focusTarget={focusTarget}
                                 selectedId={selectedEquipmentId}
-                                superAdminPerimeter={superAdminPerimeter}
                                 adminPosition={adminPosition}
                                 routeOverlay={routeOverlay}
                                 onPlanRoute={canPlanRoute ? handlePlanRouteFromMap : undefined}

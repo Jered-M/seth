@@ -73,12 +73,6 @@ interface Map2DProps {
     onManualPosition?: (lat: number, lng: number) => void;
     focusTarget?: { id: string; lat: number; lng: number; tick: number } | null;
     selectedId?: string | null;
-    superAdminPerimeter?: {
-        configured: boolean;
-        center_lat?: number | null;
-        center_lng?: number | null;
-        radius_m?: number;
-    } | null;
     adminPosition?: { lat: number; lng: number } | null;
     routeOverlay?: RouteOverlay | null;
     onPlanRoute?: (equipment: EquipmentPosition) => void;
@@ -335,7 +329,6 @@ const Map2D: React.FC<Map2DProps> = ({
     onManualPosition,
     focusTarget,
     selectedId,
-    superAdminPerimeter,
     adminPosition,
     routeOverlay,
     onPlanRoute,
@@ -384,21 +377,6 @@ const Map2D: React.FC<Map2DProps> = ({
                     <MapInitialFit equipments={equipments} />
                     <MapFocusController focusTarget={focusTarget} />
                     <MapClickPicker enabled={manualPickEnabled} onPick={onManualPosition} />
-                    {superAdminPerimeter?.configured &&
-                    Number.isFinite(superAdminPerimeter.center_lat) &&
-                    Number.isFinite(superAdminPerimeter.center_lng) ? (
-                        <Circle
-                            center={[superAdminPerimeter.center_lat!, superAdminPerimeter.center_lng!]}
-                            radius={superAdminPerimeter.radius_m ?? 10}
-                            pathOptions={{
-                                color: '#3b82f6',
-                                fillColor: '#3b82f6',
-                                fillOpacity: 0.12,
-                                weight: 2,
-                                dashArray: '8 6',
-                            }}
-                        />
-                    ) : null}
                     <MapRouteLayer route={routeOverlay} adminPosition={adminPosition} />
                     <MapMarkers equipments={equipments} selectedId={selectedId} onPlanRoute={onPlanRoute} />
                 </MapContainer>

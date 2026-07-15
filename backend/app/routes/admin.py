@@ -171,6 +171,26 @@ def get_all_logs():
         "date": l.created_at.isoformat()
     } for l in logs]), 200
 
+@admin_bp.route("/geofencing", methods=["GET"])
+@jwt_required()
+@super_admin_required
+def get_geofencing_zones():
+    """Retourne toutes les zones de geofencing configurées."""
+    zones = AuthorizedZone.query.all()
+    result = []
+    for z in zones:
+        result.append({
+            "id": z.id,
+            "name": z.name,
+            "center_lat": z.center_lat,
+            "center_lng": z.center_lng,
+            "radius_meters": z.radius_meters,
+            "polygon_points": z.polygon_points,
+            "ip_subnets": z.ip_subnets,
+            "department_id": z.department_id,
+        })
+    return jsonify(result), 200
+
 @admin_bp.route("/geofencing", methods=["POST"])
 @jwt_required()
 @super_admin_required
@@ -180,18 +200,23 @@ def configure_geofencing():
     lat = data.get("lat")
     lng = data.get("lng")
     radius = data.get("radius")
-    dept_id = data.get("dept_id") # Optinnel
+    dept_id = data.get("dept_id") # Optionnel
+    polygon_points = data.get("polygon_points") # Liste JSON en string
+    ip_subnets = data.get("ip_subnets") # Liste JSON en string
     
     zone = AuthorizedZone(
         name=name,
         center_lat=lat,
         center_lng=lng,
         radius_meters=radius,
-        department_id=dept_id
+        department_id=dept_id,
+        polygon_points=polygon_points,
+        ip_subnets=ip_subnets
     )
     db.session.add(zone)
     db.session.commit()
     
+    return jsonify({"message": "Zone de sécurité créée", "id": zone.id}), 201
 @admin_bp.route("/dashboard/stats", methods=["GET"])
 @jwt_required()
 @super_admin_required
