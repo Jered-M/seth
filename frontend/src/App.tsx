@@ -19,6 +19,7 @@ import { SettingsPage } from './pages/Settings'
 import { RoleRoute } from './components/RoleRoute'
 import { useState, useEffect } from 'react'
 import { authService, User } from './services/authService'
+import { registerPushNotifications, syncPushSubscriptionIfEnabled } from './services/pushNotificationService'
 
 function App() {
     const [user, setUser] = useState<User | null>(() =>
@@ -29,6 +30,7 @@ function App() {
     useEffect(() => {
         if (authService.isAuthenticated()) {
             setUser((prev) => prev ?? authService.getCurrentUser());
+            syncPushSubscriptionIfEnabled().catch(() => undefined);
         } else {
             authService.logout();
             setUser(null);
@@ -38,6 +40,7 @@ function App() {
 
     const handleLogin = (userData: User) => {
         setUser(userData);
+        registerPushNotifications().catch(() => undefined);
     };
 
     const handleLogout = () => {

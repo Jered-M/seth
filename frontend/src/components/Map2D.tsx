@@ -6,6 +6,7 @@ import {
     Popup,
     ZoomControl,
     Circle,
+    Polyline,
     useMap,
     useMapEvents,
 } from 'react-leaflet';
@@ -21,7 +22,7 @@ import {
     shouldRunInitialAutoFit,
 } from '../services/mapViewport';
 
-const DEFAULT_CENTER: [number, number] = [48.8566, 2.3522];
+const DEFAULT_CENTER: [number, number] = [-11.676486, 27.48082];
 const DEFAULT_ZOOM = 13;
 
 const icon = L.icon({
@@ -33,6 +34,21 @@ const icon = L.icon({
     popupAnchor: [1, -34],
     shadowSize: [41, 41],
 });
+
+const adminIcon = L.divIcon({
+    className: '',
+    html: '<div style="width:16px;height:16px;background:#22c55e;border:3px solid #fff;border-radius:50%;box-shadow:0 0 10px #22c55e"></div>',
+    iconSize: [16, 16],
+    iconAnchor: [8, 8],
+});
+
+export interface RouteOverlay {
+    coordinates: [number, number][];
+    distanceM: number;
+    durationS: number;
+    source: 'osrm' | 'direct';
+    targetName?: string;
+}
 
 export interface EquipmentPosition {
     id: string;
@@ -63,6 +79,9 @@ interface Map2DProps {
         center_lng?: number | null;
         radius_m?: number;
     } | null;
+    adminPosition?: { lat: number; lng: number } | null;
+    routeOverlay?: RouteOverlay | null;
+    onPlanRoute?: (equipment: EquipmentPosition) => void;
 }
 
 const MapUserInteractionLock: React.FC = () => {
@@ -112,8 +131,12 @@ const MapResizer: React.FC = () => {
     return null;
 };
 
-const EquipmentMarker: React.FC<{ equipment: EquipmentPosition; isSelected?: boolean }> = React.memo(
-    ({ equipment: eq, isSelected }) => {
+const EquipmentMarker: React.FC<{
+    equipment: EquipmentPosition;
+    isSelected?: boolean;
+    onPlanRoute?: (equipment: EquipmentPosition) => void;
+}> = React.memo(
+    ({ equipment: eq, isSelected, onPlanRoute }) => {
         const markerRef = useRef<L.Marker>(null);
 
         useEffect(() => {
@@ -181,6 +204,15 @@ const EquipmentMarker: React.FC<{ equipment: EquipmentPosition; isSelected?: boo
                                     {eq.zoneStatus !== 'IN_ZONE' ? ' ⚠️' : ''}
                                 </p>
                             ) : null}
+                            {onPlanRoute ? (
+                                <button
+                                    type="button"
+                                    onClick={() => onPlanRoute(eq)}
+                                    className="mt-3 w-full py-1.5 px-2 bg-blue-600 text-white text-[10px] font-bold uppercase rounded hover:bg-blue-700"
+                                >
+                                    Itinéraire le plus court
+                                </button>
+                            ) : null}
                         </div>
                     </Popup>
                 </Marker>
@@ -193,19 +225,66 @@ const EquipmentMarker: React.FC<{ equipment: EquipmentPosition; isSelected?: boo
         prev.equipment.lng === next.equipment.lng &&
         prev.equipment.accuracy === next.equipment.accuracy &&
         prev.equipment.status === next.equipment.status &&
-        prev.isSelected === next.isSelected
+        prev.isSelected === next.isSelected &&
+        prev.onPlanRoute === next.onPlanRoute
 );
 
-const MapMarkers: React.FC<{ equipments: EquipmentPosition[]; selectedId?: string | null }> = ({
-    equipments,
-    selectedId,
-}) => (
+const MapMarkers: React.FC<{
+    equipments: EquipmentPosition[];
+    selectedId?: string | null;
+    onPlanRoute?: (equipment: EquipmentPosition) => void;
+}> = ({ equipments, selectedId, onPlanRoute }) => (
     <>
         {equipments.map((eq) => (
-            <EquipmentMarker key={eq.id} equipment={eq} isSelected={eq.id === selectedId} />
+            <EquipmentMarker
+                key={eq.id}
+                equipment={eq}
+                isSelected={eq.id === selectedId}
+                onPlanRoute={onPlanRoute}
+            />
         ))}
     </>
 );
+
+const MapRouteLayer: React.FC<{
+    route?: RouteOverlay | null;
+    adminPosition?: { lat: number; lng: number } | null;
+}> = ({ route, adminPosition }) => {
+    const map = useMap();
+
+    useEffect(() => {
+        if (!route?.coordinates?.length) return;
+        lockMapViewport();
+        const bounds = L.latLngBounds(route.coordinates);
+        if (adminPosition) {
+            bounds.extend([adminPosition.lat, adminPosition.lng]);
+        }
+        map.fitBounds(bounds.pad(0.15), { animate: true, maxZoom: 18 });
+    }, [map, route, adminPosition]);
+
+    if (!route?.coordinates?.length) return null;
+
+    return (
+        <>
+            <Polyline
+                positions={route.coordinates}
+                pathOptions={{
+                    color: '#f59e0b',
+                    weight: 5,
+                    opacity: 0.9,
+                    lineJoin: 'round',
+                }}
+            />
+            {adminPosition ? (
+                <Marker position={[adminPosition.lat, adminPosition.lng]} icon={adminIcon}>
+                    <Popup>
+                        <p className="text-xs font-bold text-gray-900">Votre position (admin)</p>
+                    </Popup>
+                </Marker>
+            ) : null}
+        </>
+    );
+};
 
 /** Centre la carte sur un matériel sélectionné depuis la liste. */
 const MapFocusController: React.FC<{
@@ -257,6 +336,9 @@ const Map2D: React.FC<Map2DProps> = ({
     focusTarget,
     selectedId,
     superAdminPerimeter,
+    adminPosition,
+    routeOverlay,
+    onPlanRoute,
 }) => {
     const [isLoaded, setIsLoaded] = useState(false);
     const mapInstanceKey = useRef(`map-${Date.now()}`).current;
@@ -317,7 +399,8 @@ const Map2D: React.FC<Map2DProps> = ({
                             }}
                         />
                     ) : null}
-                    <MapMarkers equipments={equipments} selectedId={selectedId} />
+                    <MapRouteLayer route={routeOverlay} adminPosition={adminPosition} />
+                    <MapMarkers equipments={equipments} selectedId={selectedId} onPlanRoute={onPlanRoute} />
                 </MapContainer>
             ) : null}
         </div>

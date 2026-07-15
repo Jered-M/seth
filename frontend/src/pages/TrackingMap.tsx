@@ -12,7 +12,7 @@ import {
     Monitor,
     MousePointerClick
 } from 'lucide-react';
-import Map2D from '../components/Map2D';
+import Map2D, { RouteOverlay } from '../components/Map2D';
 import Map3D from '../components/Map3D';
 import {
     createManualPosition,
@@ -35,6 +35,12 @@ import {
 import { authService } from '../services/authService';
 import { MAP_STATUS_COLORS, MAP_STATUS_LABELS } from '../services/trackingService';
 import { lockMapViewport, resetMapViewportState } from '../services/mapViewport';
+import {
+    fetchShortestRoute,
+    formatRouteDistance,
+    formatRouteDuration,
+    googleMapsDirectionsUrl,
+} from '../services/routingService';
 
 interface EquipmentData {
     id: string;
@@ -106,12 +112,81 @@ export const TrackingMap = () => {
     const [gpsUnavailableHint, setGpsUnavailableHint] = useState<string | null>(null);
     const [liveStats, setLiveStats] = useState({ online: 0, located: 0 });
     const [superAdminPerimeter, setSuperAdminPerimeter] = useState<SuperAdminPerimeter | null>(null);
+    const [adminPosition, setAdminPosition] = useState<{ lat: number; lng: number } | null>(null);
+    const [routeOverlay, setRouteOverlay] = useState<RouteOverlay | null>(null);
+    const [routeLoading, setRouteLoading] = useState(false);
+    const [routeTargetId, setRouteTargetId] = useState<string | null>(null);
     const mapSectionRef = useRef<HTMLDivElement>(null);
     const isDesktop = isDesktopDevice();
     const locationProfile = getLocationProfile();
     const lastSyncedPositionRef = useRef<{ lat: number; lng: number } | null>(null);
 
-    const handleEquipmentCardClick = (eq: EquipmentData) => {
+    const normalizedViewerRole = (() => {
+        const role = authService.getCurrentUser()?.role;
+        if (role === 'ADMIN_GENERAL') return 'SUPER_ADMIN';
+        if (role === 'ADMIN_DEPT') return 'DEPT_ADMIN';
+        if (role === 'SECURITY_AGENT') return 'GARDIEN';
+        return role || '';
+    })();
+
+    const canPlanRoute = ['SUPER_ADMIN', 'DEPT_ADMIN', 'SUPERVISOR', 'GARDIEN'].includes(normalizedViewerRole);
+
+    const resolveRouteOrigin = async (): Promise<{ lat: number; lng: number } | null> => {
+        const gps = await getFreshBrowserLocation();
+        if (gps) return { lat: gps.lat, lng: gps.lng };
+
+        if (
+            superAdminPerimeter?.configured &&
+            Number.isFinite(superAdminPerimeter.center_lat) &&
+            Number.isFinite(superAdminPerimeter.center_lng)
+        ) {
+            return {
+                lat: Number(superAdminPerimeter.center_lat),
+                lng: Number(superAdminPerimeter.center_lng),
+            };
+        }
+        return null;
+    };
+
+    const planRouteTo = async (eq: { id: string; name: string; lat: number | null; lng: number | null }) => {
+        if (!canPlanRoute) return;
+        if (!Number.isFinite(eq.lat) || !Number.isFinite(eq.lng)) {
+            setGpsUnavailableHint(`${eq.name} — GPS indisponible, itinéraire impossible.`);
+            return;
+        }
+
+        setRouteLoading(true);
+        setGpsUnavailableHint(null);
+        try {
+            const origin = await resolveRouteOrigin();
+            if (!origin) {
+                setGpsUnavailableHint(
+                    'Activez votre géolocalisation (ou configurez le périmètre super admin) pour tracer l\'itinéraire.'
+                );
+                return;
+            }
+
+            const result = await fetchShortestRoute(origin, {
+                lat: Number(eq.lat),
+                lng: Number(eq.lng),
+            });
+
+            setAdminPosition(origin);
+            setRouteOverlay({
+                coordinates: result.coordinates,
+                distanceM: result.distanceM,
+                durationS: result.durationS,
+                source: result.source,
+                targetName: eq.name,
+            });
+            setRouteTargetId(eq.id);
+            setView('2D');
+        } finally {
+            setRouteLoading(false);
+        }
+    };
+
+    const handleEquipmentCardClick = async (eq: EquipmentData) => {
         setGpsUnavailableHint(null);
         if (!Number.isFinite(eq.lat) || !Number.isFinite(eq.lng)) {
             setGpsUnavailableHint(`${eq.name} — GPS indisponible, position non affichable sur la carte.`);
@@ -126,6 +201,15 @@ export const TrackingMap = () => {
         });
         setView('2D');
         mapSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+        if (canPlanRoute) {
+            await planRouteTo(eq);
+        }
+    };
+
+    const handlePlanRouteFromMap = (eq: EquipmentPosition) => {
+        setSelectedEquipmentId(eq.id);
+        void planRouteTo(eq);
     };
 
     const buildPositionSignature = (items: Array<{ id: string; lat: number; lng: number; accuracy?: number | null; status?: string }>) =>
@@ -436,6 +520,57 @@ export const TrackingMap = () => {
                     </div>
                 )}
 
+                {/* Route overlay */}
+                {canPlanRoute && (routeOverlay || routeLoading) ? (
+                    <div className="absolute top-6 right-6 z-[2000] max-w-xs pro-card border border-amber-500/30 bg-[#0a0f1d]/95 p-4 shadow-2xl">
+                        <p className="text-[9px] font-black uppercase tracking-widest text-amber-400 mb-2">
+                            Itinéraire le plus court
+                        </p>
+                        {routeLoading ? (
+                            <div className="flex items-center gap-2 text-xs text-slate-400">
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                                Calcul en cours…
+                            </div>
+                        ) : routeOverlay ? (
+                            <>
+                                <p className="text-sm font-bold text-white truncate">
+                                    → {routeOverlay.targetName || 'Cible'}
+                                </p>
+                                <p className="text-xs text-slate-400 mt-1">
+                                    {formatRouteDistance(routeOverlay.distanceM)} · {formatRouteDuration(routeOverlay.durationS)}
+                                    {routeOverlay.source === 'direct' ? ' (ligne directe)' : ' (routes OSM)'}
+                                </p>
+                                {adminPosition && routeOverlay.coordinates.length > 0 ? (
+                                    <a
+                                        href={googleMapsDirectionsUrl(
+                                            adminPosition,
+                                            {
+                                                lat: routeOverlay.coordinates[routeOverlay.coordinates.length - 1][0],
+                                                lng: routeOverlay.coordinates[routeOverlay.coordinates.length - 1][1],
+                                            }
+                                        )}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="inline-block mt-3 text-[10px] font-bold uppercase text-blue-400 hover:text-blue-300"
+                                    >
+                                        Ouvrir dans Google Maps
+                                    </a>
+                                ) : null}
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setRouteOverlay(null);
+                                        setRouteTargetId(null);
+                                    }}
+                                    className="block mt-2 text-[9px] text-slate-500 hover:text-white uppercase"
+                                >
+                                    Masquer l'itinéraire
+                                </button>
+                            </>
+                        ) : null}
+                    </div>
+                ) : null}
+
                 <div className="absolute inset-0">
                     {view === '2D' ? (
                         <div className="h-full">
@@ -446,6 +581,9 @@ export const TrackingMap = () => {
                                 focusTarget={focusTarget}
                                 selectedId={selectedEquipmentId}
                                 superAdminPerimeter={superAdminPerimeter}
+                                adminPosition={adminPosition}
+                                routeOverlay={routeOverlay}
+                                onPlanRoute={canPlanRoute ? handlePlanRouteFromMap : undefined}
                             />
                         </div>
                     ) : (
@@ -575,7 +713,7 @@ export const TrackingMap = () => {
                                 ) : null}
                             </div>
                         </div>
-                        <div className="text-right">
+                        <div className="text-right flex flex-col items-end gap-2">
                             <p className="text-[8px] font-black text-slate-600 uppercase mb-1">Coordonnées</p>
                             {Number.isFinite(eq.lat) && Number.isFinite(eq.lng) ? (
                                 <>
@@ -586,6 +724,30 @@ export const TrackingMap = () => {
                                         <p className="text-[8px] font-mono text-slate-500 mt-1">
                                             ±{Math.round(eq.accuracy)} m
                                         </p>
+                                    ) : null}
+                                    {canPlanRoute && hasGps ? (
+                                        <span
+                                            role="button"
+                                            tabIndex={0}
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                void planRouteTo(eq);
+                                            }}
+                                            onKeyDown={(e) => {
+                                                if (e.key === 'Enter' || e.key === ' ') {
+                                                    e.preventDefault();
+                                                    e.stopPropagation();
+                                                    void planRouteTo(eq);
+                                                }
+                                            }}
+                                            className={`text-[8px] font-black uppercase px-2 py-1 rounded border cursor-pointer ${
+                                                routeTargetId === eq.id
+                                                    ? 'bg-amber-500/20 border-amber-400 text-amber-300'
+                                                    : 'border-blue-500/40 text-blue-400 hover:bg-blue-500/10'
+                                            }`}
+                                        >
+                                            {routeTargetId === eq.id ? 'Itinéraire actif' : 'Itinéraire'}
+                                        </span>
                                     ) : null}
                                 </>
                             ) : (

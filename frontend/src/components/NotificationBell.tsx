@@ -26,8 +26,6 @@ const TYPE_LABELS: Record<string, string> = {
 
     SECURITY_ALERT: 'Alerte',
 
-    SUPER_ADMIN_PERIMETER_BREACH: 'Hors périmètre',
-
     USER_REPORT: 'Signalement',
 
     REQUEST_ESCALATED: 'Demande validée',
@@ -140,30 +138,6 @@ export const NotificationBell = ({ userId }: NotificationBellProps) => {
 
         setToasts((prev) => [toast, ...prev].slice(0, 4));
 
-
-
-        if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
-
-            try {
-
-                new Notification(n.title, {
-
-                    body: n.message || n.title,
-
-                    tag: n.id,
-
-                });
-
-            } catch {
-
-                /* navigateur sans support */
-
-            }
-
-        }
-
-
-
         setTimeout(() => {
 
             setToasts((prev) => prev.filter((t) => t.id !== toast.id));
@@ -223,18 +197,6 @@ export const NotificationBell = ({ userId }: NotificationBellProps) => {
         }
 
     }, [pushToast]);
-
-
-
-    useEffect(() => {
-
-        if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
-
-            Notification.requestPermission().catch(() => undefined);
-
-        }
-
-    }, []);
 
 
 

@@ -2,6 +2,12 @@ import React, { useState, useEffect } from 'react';
 import { Settings, Save, Eye, EyeOff, AlertCircle, CheckCircle } from 'lucide-react';
 import { motion } from 'framer-motion';
 import api from '../services/api';
+import {
+    getPushPermission,
+    isPushSupported,
+    registerPushNotifications,
+    unregisterPushNotifications,
+} from '../services/pushNotificationService';
 
 interface SettingsData {
     autoLogoutMinutes: number;
@@ -58,8 +64,28 @@ export const SettingsPage = () => {
         }
     };
 
-    const handleChange = (key: keyof SettingsData, value: any) => {
+    const [pushStatus, setPushStatus] = useState<string>('');
+
+    useEffect(() => {
+        if (isPushSupported()) {
+            getPushPermission().then((p) => setPushStatus(p));
+        }
+    }, []);
+
+    const handleChange = (key: keyof SettingsData, value: SettingsData[keyof SettingsData]) => {
         setSettings(prev => ({ ...prev, [key]: value }));
+    };
+
+    const handleAlertsToggle = async (enabled: boolean) => {
+        handleChange('alertsEnabled', enabled);
+        if (!isPushSupported()) return;
+        if (enabled) {
+            const ok = await registerPushNotifications();
+            setPushStatus(ok ? 'granted' : Notification.permission);
+        } else {
+            await unregisterPushNotifications();
+            setPushStatus(Notification.permission);
+        }
     };
 
     return (
@@ -164,11 +190,21 @@ export const SettingsPage = () => {
                                 <input
                                     type="checkbox"
                                     checked={settings.alertsEnabled}
-                                    onChange={(e) => handleChange('alertsEnabled', e.target.checked)}
+                                    onChange={(e) => handleAlertsToggle(e.target.checked)}
                                     className="w-4 h-4 rounded border-white/20"
                                 />
-                                <span className="text-sm font-bold text-white">Activer les notifications d'alertes</span>
+                                <span className="text-sm font-bold text-white">
+                                    Notifications push (hors plateforme)
+                                </span>
                             </label>
+                            {isPushSupported() ? (
+                                <p className="text-xs text-slate-500 ml-7">
+                                    Permission navigateur : {pushStatus || '…'}
+                                    {pushStatus === 'denied' ? ' — autorisez les notifications dans les paramètres du navigateur.' : ''}
+                                </p>
+                            ) : (
+                                <p className="text-xs text-amber-500 ml-7">Push non supporté sur ce navigateur.</p>
+                            )}
                         </div>
                     </div>
 

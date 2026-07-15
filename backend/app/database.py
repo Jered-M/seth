@@ -87,7 +87,7 @@ def init_db(app):
             _migrate_device_location_fields()
             _migrate_internal_request_fields()
             _migrate_security_alert_fields()
-            _ensure_super_admin_perimeter_zone()
+            _migrate_authorized_zone_fields()
             print("[OK] Base de données initialisée (create_all executed)")
     except Exception as e:
         print(f"[CRITICAL ERROR] IN INIT_DB: {e}")
@@ -142,6 +142,23 @@ def _migrate_internal_request_fields():
         print(f"[WARN] Migration demandes ignorée: {exc}")
 
 
+def _migrate_authorized_zone_fields():
+    """Ajoute la colonne ip_subnets pour le geofencing IP."""
+    from sqlalchemy import inspect
+    try:
+        inspector = inspect(db.engine)
+        if "authorized_zones" not in inspector.get_table_names():
+            return
+        columns = {col["name"] for col in inspector.get_columns("authorized_zones")}
+        if "ip_subnets" not in columns:
+            db.session.execute(text("ALTER TABLE authorized_zones ADD COLUMN ip_subnets TEXT"))
+            db.session.commit()
+            print("[OK] Migration zones: colonne ip_subnets ajoutée")
+    except Exception as exc:
+        db.session.rollback()
+        print(f"[WARN] Migration zones ignorée: {exc}")
+
+
 def _migrate_security_alert_fields():
     """Colonnes assignation technicien sur security_alerts."""
     from sqlalchemy import inspect
@@ -163,17 +180,6 @@ def _migrate_security_alert_fields():
     except Exception as exc:
         db.session.rollback()
         print(f"[WARN] Migration alertes ignorée: {exc}")
-
-
-def _ensure_super_admin_perimeter_zone():
-    """Zone périmètre 10 m autour du PC super admin."""
-    try:
-        from app.services.security_service import SecurityService
-        SecurityService.ensure_super_admin_perimeter_zone()
-        print("[OK] Périmètre super admin (10 m) prêt")
-    except Exception as exc:
-        db.session.rollback()
-        print(f"[WARN] Périmètre super admin ignoré: {exc}")
 
 
 def get_db_connection():

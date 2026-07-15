@@ -101,7 +101,18 @@ class WorkflowService:
             payload_json=json.dumps(payload, ensure_ascii=False),
         )
         db.session.add(notification)
+        db.session.flush()
+        notification_id = notification.id
         db.session.commit()
+
+        from app.services.push_service import PushService
+
+        PushService.send_to_user(
+            user_id,
+            title,
+            payload.get("message") or title,
+            {"notification_id": notification_id, "type": notif_type},
+        )
 
     @staticmethod
     def _event(request_id: str, actor_id: str, level: str, action: str, comment: str | None = None):

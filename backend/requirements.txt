@@ -14,3 +14,4 @@ axios
 APScheduler
 pytest
 gunicorn
+pywebpush==2.3.0

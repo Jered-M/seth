@@ -133,18 +133,9 @@ def update_position():
     _apply_device_location(device, lat, lng, accuracy)
 
     user = User.query.get(user_id)
-    if user and not SecurityService._is_super_admin(user):
-        SecurityService.ensure_super_admin_perimeter_zone()
-        SecurityService.handle_super_admin_perimeter_breach(
-            user,
-            float(lat),
-            float(lng),
-            request.remote_addr or "",
-            request.headers.get("User-Agent") or "",
-        )
 
     # Vérification géofencing
-    is_safe = SecurityService.check_geofencing(device_id)
+    is_safe = SecurityService.check_geofencing(device_id, ip_address=request.remote_addr)
     
     if not is_safe:
         device.status = "OUT_OF_ZONES"
@@ -201,27 +192,12 @@ def sync_user_location():
     ip = request.remote_addr or ""
     user_agent = request.headers.get("User-Agent") or ""
 
-    SecurityService.ensure_super_admin_perimeter_zone()
-
-    if not SecurityService._is_super_admin(user):
-        SecurityService.handle_super_admin_perimeter_breach(user, flat, flng, ip, user_agent)
-
-    perimeter = SecurityService.check_super_admin_perimeter(flat, flng)
     return jsonify({
         "message": "Position synchronisée",
-        "perimeter": perimeter,
-        "alert": not perimeter.get("inside", True) and perimeter.get("configured"),
     }), 200
 
 
-@user_bp.route("/tracking/super-admin-perimeter", methods=["GET"])
-@jwt_required()
-def get_super_admin_perimeter():
-    """Retourne le périmètre 10 m autour du PC super admin (carte / supervision)."""
-    requester = User.query.get(get_jwt_identity())
-    if not requester or not requester.role or requester.role.name not in _TRACKING_ROLES:
-        return jsonify({"message": "Accès refusé"}), 403
-    return jsonify(SecurityService.get_super_admin_perimeter_status()), 200
+
 
 
 @user_bp.route("/department/devices-map", methods=["GET"])
@@ -364,3 +340,44 @@ def get_passage_history():
         return jsonify({"message": "Accès refusé"}), 403
 
     return jsonify(build_passage_history(requester)), 200
+
+
+@user_bp.route("/push/vapid-public-key", methods=["GET"])
+@jwt_required()
+def get_push_vapid_public_key():
+    from app.services.push_service import PushService
+
+    public_key = PushService.get_vapid_public_key()
+    return jsonify({
+        "public_key": public_key,
+        "configured": PushService.is_configured(),
+    }), 200
+
+
+@user_bp.route("/push/subscribe", methods=["POST"])
+@jwt_required()
+def subscribe_push():
+    from app.services.push_service import PushService
+
+    user_id = get_jwt_identity()
+    data = request.json or {}
+    try:
+        row = PushService.upsert_subscription(
+            user_id,
+            data,
+            request.headers.get("User-Agent"),
+        )
+        return jsonify({"message": "Abonnement push enregistré", "id": row.id}), 201
+    except ValueError as exc:
+        return jsonify({"message": str(exc)}), 400
+
+
+@user_bp.route("/push/unsubscribe", methods=["POST", "DELETE"])
+@jwt_required()
+def unsubscribe_push():
+    from app.services.push_service import PushService
+
+    user_id = get_jwt_identity()
+    endpoint = (request.json or {}).get("endpoint")
+    removed = PushService.remove_subscription(user_id, endpoint)
+    return jsonify({"message": "Abonnement supprimé", "removed": removed}), 200

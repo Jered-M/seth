@@ -33,15 +33,6 @@ export interface LiveTrackingResult {
     items: TrackedEquipment[];
     onlineCount: number;
     locatedCount: number;
-    superAdminPerimeter?: SuperAdminPerimeter | null;
-}
-
-export interface SuperAdminPerimeter {
-    configured: boolean;
-    radius_m: number;
-    center_lat?: number | null;
-    center_lng?: number | null;
-    name?: string;
 }
 
 const GEO_HIGH_ACCURACY: PositionOptions = {
@@ -354,12 +345,10 @@ export const fetchLiveTracking = async (): Promise<LiveTrackingResult> => {
     const response = await api.get('/user/tracking/live-positions');
     const data = response.data ?? {};
     const raw = Array.isArray(data.items) ? data.items : [];
-    const perimeter = data.super_admin_perimeter as SuperAdminPerimeter | undefined;
     return {
         items: raw.map((item: Record<string, unknown>) => mapLiveItem(item)),
         onlineCount: Number(data.online_count ?? 0),
         locatedCount: Number(data.located_count ?? 0),
-        superAdminPerimeter: perimeter ?? null,
     };
 };
 

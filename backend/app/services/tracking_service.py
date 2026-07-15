@@ -217,7 +217,6 @@ def build_live_positions(requester: User) -> dict:
         "online_count": online_count,
         "located_count": located_count,
         "items": items,
-        "super_admin_perimeter": SecurityService.get_super_admin_perimeter_status(),
     }
 
 

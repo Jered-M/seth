@@ -64,42 +64,45 @@ def _complete_successful_login(user: User, ip: str, user_agent: str | None, loca
     details = {"message": "Connexion réussie"}
     in_zone = None
 
-    if isinstance(location, dict) and location.get("lat") is not None and location.get("lng") is not None:
-        lat = float(location["lat"])
-        lng = float(location["lng"])
-        zone = SecurityService.check_point_in_zone(lat, lng, user.department_id)
-        in_zone = zone["in_zone"]
-        zone_status = "IN_ZONE" if in_zone else "OUT_OF_ZONE"
+    lat = float(location["lat"]) if isinstance(location, dict) and location.get("lat") is not None else None
+    lng = float(location["lng"]) if isinstance(location, dict) and location.get("lng") is not None else None
+
+    zone = SecurityService.check_point_in_zone(lat, lng, user.department_id, ip_address=ip)
+    in_zone = zone["in_zone"]
+    zone_status = "IN_ZONE" if in_zone else "OUT_OF_ZONE"
+    
+    details["zone_status"] = zone_status
+    details["zone_name"] = zone.get("zone_name")
+    details["department"] = user.department.name if user.department else None
+    details["login_at"] = datetime.utcnow().isoformat()
+    
+    if lat is not None and lng is not None:
         details["location"] = {
             "lat": lat,
             "lng": lng,
-            "accuracy": location.get("accuracy"),
+            "accuracy": location.get("accuracy") if isinstance(location, dict) else None,
         }
-        details["zone_status"] = zone_status
-        details["zone_name"] = zone.get("zone_name")
-        details["department"] = user.department.name if user.department else None
-        details["login_at"] = datetime.utcnow().isoformat()
 
-        if not in_zone:
-            SecurityService.create_alert(
-                user.id,
-                "UNAUTHORIZED_EXIT",
-                f"Connexion HORS ZONE — {user.username} ({user.department.name if user.department else 'N/A'})",
-            )
-            SecurityService.log_event(
-                user.id,
-                "GEOFENCE_BREACH",
-                json.dumps({
-                    "message": "Connexion hors zone autorisée",
-                    "location": details["location"],
-                    "zone_status": zone_status,
-                }),
-                ip,
-                user_agent or "",
-                status="ALERT",
-                risk_score=85,
-                department_id=user.department_id,
-            )
+    if not in_zone:
+        SecurityService.create_alert(
+            user.id,
+            "UNAUTHORIZED_EXIT",
+            f"Connexion HORS ZONE — {user.username} ({user.department.name if user.department else 'N/A'})",
+        )
+        SecurityService.log_event(
+            user.id,
+            "GEOFENCE_BREACH",
+            json.dumps({
+                "message": "Connexion hors zone autorisée",
+                "location": details.get("location"),
+                "zone_status": zone_status,
+            }),
+            ip,
+            user_agent or "",
+            status="ALERT",
+            risk_score=85,
+            department_id=user.department_id,
+        )
 
     SecurityService.log_event(
         user.id,
@@ -116,12 +119,6 @@ def _complete_successful_login(user: User, ip: str, user_agent: str | None, loca
 
     lat_val = location.get("lat") if isinstance(location, dict) else None
     lng_val = location.get("lng") if isinstance(location, dict) else None
-
-    if lat_val is not None and lng_val is not None:
-        flat, flng = float(lat_val), float(lng_val)
-        SecurityService.ensure_super_admin_perimeter_zone()
-        if not SecurityService._is_super_admin(user):
-            SecurityService.handle_super_admin_perimeter_breach(user, flat, flng, ip, user_agent or "")
 
     notify_login(user, in_zone, lat_val, lng_val, datetime.utcnow())
 

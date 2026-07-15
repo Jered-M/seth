@@ -133,6 +133,7 @@ class AuthorizedZone(db.Model):
     center_lng = db.Column(db.Float)
     radius_meters = db.Column(db.Float)
     polygon_points = db.Column(db.Text, nullable=True) # JSON array of coordinates for polygons
+    ip_subnets = db.Column(db.Text, nullable=True) # JSON array of IP CIDRs (e.g. ["192.168.10.0/24"])
     department_id = db.Column(db.String(36), db.ForeignKey("departments.id"), nullable=True)
 
 
@@ -199,6 +200,19 @@ class Notification(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     user = db.relationship("User", backref="notifications")
+
+
+class PushSubscription(db.Model):
+    __tablename__ = "push_subscriptions"
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = db.Column(db.String(36), db.ForeignKey("users.id"), nullable=False)
+    endpoint = db.Column(db.Text, nullable=False, unique=True)
+    p256dh = db.Column(db.String(255), nullable=False)
+    auth = db.Column(db.String(255), nullable=False)
+    user_agent = db.Column(db.String(255), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    user = db.relationship("User", backref="push_subscriptions")
 
 
 class UserSession(db.Model):

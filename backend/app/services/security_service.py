@@ -11,12 +11,6 @@ from app.models.security_models import (
     User, Role, UserDevice, SecurityLog, SecurityAlert, Device, ExitRequest, AuthorizedZone, RoleName
 )
 
-SUPER_ADMIN_PERIMETER_ZONE_NAME = "SUPER_ADMIN_PC_PERIMETER"
-SUPER_ADMIN_PERIMETER_RADIUS_M = 10.0
-SUPER_ADMIN_PERIMETER_CENTER_LAT = -11.676486
-SUPER_ADMIN_PERIMETER_CENTER_LNG = 27.48082
-PERIMETER_ALERT_COOLDOWN_MINUTES = 5
-
 
 class SecurityService:
     """Service central de sécurité utilisant SQLAlchemy et PostgreSQL"""
@@ -136,11 +130,25 @@ class SecurityService:
         }
 
     @staticmethod
-    def check_geofencing(device_id: str) -> bool:
-        """Vérifie si l'équipement est dans une zone autorisée (Cercle ou Polygone)"""
+    def _is_ip_in_subnets(ip_address: str | None, subnets_json: str | None) -> bool:
+        if not ip_address or not subnets_json:
+            return False
+        try:
+            import json
+            import ipaddress
+            subnets = json.loads(subnets_json)
+            ip_obj = ipaddress.ip_address(ip_address)
+            for subnet in subnets:
+                if ip_obj in ipaddress.ip_network(subnet, strict=False):
+                    return True
+        except Exception:
+            pass
+        return False
+
+    @staticmethod
+    def check_geofencing(device_id: str, ip_address: str | None = None) -> bool:
+        """Vérifie si l'équipement est dans une zone autorisée (IP, Polygone ou Cercle)"""
         device = Device.query.get(device_id)
-        if not device or not device.last_known_lat or not device.last_known_lng:
-            return True # Pas de data GPS, on autorise par défaut
         
         zones = AuthorizedZone.query.filter(
             (AuthorizedZone.department_id == device.department_id) | (AuthorizedZone.department_id == None)
@@ -148,6 +156,18 @@ class SecurityService:
         
         if not zones:
             return True # Aucune restriction
+            
+        # 1. Vérification par IP en priorité (le plus fiable pour un desktop connecté au réseau)
+        if ip_address:
+            for zone in zones:
+                if zone.ip_subnets and SecurityService._is_ip_in_subnets(ip_address, zone.ip_subnets):
+                    return True
+
+        if not device or not device.last_known_lat or not device.last_known_lng:
+            # Si on a checké l'IP sans succès et qu'on a pas de GPS, on autorise par défaut
+            # (ou on pourrait bloquer, mais pour éviter les faux positifs on garde l'ancien comportement)
+            return True 
+
             
         import math
         import json
@@ -195,16 +215,22 @@ class SecurityService:
         return False
 
     @staticmethod
-    def check_point_in_zone(lat: float | None, lng: float | None, department_id: str | None = None) -> dict:
-        """Vérifie si un point GPS est dans une zone autorisée."""
-        if lat is None or lng is None:
-            return {"in_zone": True, "zone_name": None, "reason": "no_gps"}
-
+    def check_point_in_zone(lat: float | None, lng: float | None, department_id: str | None = None, ip_address: str | None = None) -> dict:
+        """Vérifie si un point (GPS ou IP) est dans une zone autorisée."""
         zones = AuthorizedZone.query.filter(
             (AuthorizedZone.department_id == department_id) | (AuthorizedZone.department_id.is_(None))
         ).all()
         if not zones:
             return {"in_zone": True, "zone_name": None, "reason": "no_zones_configured"}
+
+        # 1. Vérification IP
+        if ip_address:
+            for zone in zones:
+                if zone.ip_subnets and SecurityService._is_ip_in_subnets(ip_address, zone.ip_subnets):
+                    return {"in_zone": True, "zone_name": zone.name, "reason": "ip_subnet"}
+
+        if lat is None or lng is None:
+            return {"in_zone": True, "zone_name": None, "reason": "no_gps"}
 
         import math
         import json as _json
@@ -260,129 +286,4 @@ class SecurityService:
             "refresh_token": create_refresh_token(identity=user.id)
         }
 
-    @staticmethod
-    def _haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
-        import math
-        R = 6371000
-        phi1, phi2 = math.radians(lat1), math.radians(lat2)
-        dphi = math.radians(lat2 - lat1)
-        dlambda = math.radians(lon2 - lon1)
-        a = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2) ** 2
-        return 2 * R * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
-    @staticmethod
-    def _is_super_admin(user: User | None) -> bool:
-        if not user or not user.role:
-            return False
-        return user.role.name in {RoleName.SUPER_ADMIN, "ADMIN_GENERAL"}
-
-    @staticmethod
-    def ensure_super_admin_perimeter_zone() -> AuthorizedZone:
-        """Crée ou met à jour la zone périmètre 10 m (centre fixe poste super admin)."""
-        zone = AuthorizedZone.query.filter_by(name=SUPER_ADMIN_PERIMETER_ZONE_NAME).first()
-        if not zone:
-            zone = AuthorizedZone(
-                name=SUPER_ADMIN_PERIMETER_ZONE_NAME,
-                radius_meters=SUPER_ADMIN_PERIMETER_RADIUS_M,
-                center_lat=SUPER_ADMIN_PERIMETER_CENTER_LAT,
-                center_lng=SUPER_ADMIN_PERIMETER_CENTER_LNG,
-                department_id=None,
-            )
-            db.session.add(zone)
-        else:
-            zone.radius_meters = SUPER_ADMIN_PERIMETER_RADIUS_M
-            zone.center_lat = SUPER_ADMIN_PERIMETER_CENTER_LAT
-            zone.center_lng = SUPER_ADMIN_PERIMETER_CENTER_LNG
-        db.session.commit()
-        return zone
-
-    @staticmethod
-    def update_super_admin_anchor(lat: float, lng: float) -> AuthorizedZone:
-        """Conserve l'ancre fixe — ignore les coordonnées GPS dynamiques."""
-        return SecurityService.ensure_super_admin_perimeter_zone()
-
-    @staticmethod
-    def get_super_admin_perimeter_status() -> dict:
-        zone = AuthorizedZone.query.filter_by(name=SUPER_ADMIN_PERIMETER_ZONE_NAME).first()
-        if not zone or zone.center_lat is None or zone.center_lng is None:
-            return {
-                "configured": False,
-                "radius_m": SUPER_ADMIN_PERIMETER_RADIUS_M,
-                "center_lat": None,
-                "center_lng": None,
-            }
-        return {
-            "configured": True,
-            "radius_m": zone.radius_meters or SUPER_ADMIN_PERIMETER_RADIUS_M,
-            "center_lat": zone.center_lat,
-            "center_lng": zone.center_lng,
-            "name": zone.name,
-            "fixed_anchor": True,
-        }
-
-    @staticmethod
-    def check_super_admin_perimeter(lat: float, lng: float) -> dict:
-        """Vérifie si un point est dans le périmètre 10 m du poste super admin."""
-        zone = AuthorizedZone.query.filter_by(name=SUPER_ADMIN_PERIMETER_ZONE_NAME).first()
-        if not zone or zone.center_lat is None or zone.center_lng is None:
-            return {
-                "configured": False,
-                "inside": True,
-                "distance_m": None,
-                "radius_m": SUPER_ADMIN_PERIMETER_RADIUS_M,
-            }
-
-        radius = zone.radius_meters or SUPER_ADMIN_PERIMETER_RADIUS_M
-        distance = SecurityService._haversine_m(
-            float(lat), float(lng), zone.center_lat, zone.center_lng
-        )
-        return {
-            "configured": True,
-            "inside": distance <= radius,
-            "distance_m": round(distance, 1),
-            "radius_m": radius,
-            "center_lat": zone.center_lat,
-            "center_lng": zone.center_lng,
-        }
-
-    @staticmethod
-    def handle_super_admin_perimeter_breach(
-        user: User,
-        lat: float,
-        lng: float,
-        ip: str = "",
-        user_agent: str = "",
-    ):
-        """Alerte si un utilisateur sort du périmètre 10 m autour du PC super admin."""
-        if SecurityService._is_super_admin(user):
-            return
-
-        check = SecurityService.check_super_admin_perimeter(lat, lng)
-        if not check["configured"] or check["inside"]:
-            return
-
-        import json as _json
-
-        recent = SecurityAlert.query.filter(
-            SecurityAlert.user_id == user.id,
-            SecurityAlert.type == "SUPER_ADMIN_PERIMETER_BREACH",
-            SecurityAlert.created_at > (datetime.utcnow() - timedelta(minutes=PERIMETER_ALERT_COOLDOWN_MINUTES)),
-        ).first()
-        if recent:
-            return
-
-        message = (
-            f"HORS PÉRIMÈTRE — {user.username} à {check['distance_m']} m du poste super admin "
-            f"(limite {check['radius_m']} m)"
-        )
-        SecurityService.create_alert(user.id, "SUPER_ADMIN_PERIMETER_BREACH", message)
-        SecurityService.log_event(
-            user.id,
-            "PERIMETER_BREACH",
-            _json.dumps({**check, "lat": lat, "lng": lng}),
-            ip,
-            user_agent,
-            status="ALERT",
-            risk_score=90,
-            department_id=user.department_id,
-        )
