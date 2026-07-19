@@ -3,7 +3,7 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 from sqlalchemy import func
 from datetime import datetime
 import json
-from app.models.security_models import User, Role, RoleName, Department, SecurityLog, AuthorizedZone, Device, SecurityAlert, ExitRequest, SecurityIncident
+from app.models.security_models import User, Role, RoleName, Department, SecurityLog, AuthorizedZone, Device, SecurityAlert, ExitRequest, SecurityIncident, Notification
 # from app.services.security_service import SecurityService
 from app.middleware.rbac import super_admin_required
 from app.database import db
@@ -217,6 +217,114 @@ def configure_geofencing():
     db.session.commit()
     
     return jsonify({"message": "Zone de sécurité créée", "id": zone.id}), 201
+
+
+@admin_bp.route("/geofencing/zones", methods=["GET"])
+@jwt_required()
+def get_all_geofencing_zones():
+    """Retourne toutes les zones (accessible à tout rôle de tracking)."""
+    user_id = get_jwt_identity()
+    user = User.query.get(user_id)
+    if not user or not user.role:
+        return jsonify({"message": "Accès refusé"}), 403
+
+    allowed = {RoleName.SUPER_ADMIN, "ADMIN_GENERAL", RoleName.DEPT_ADMIN, "ADMIN_DEPT",
+               RoleName.SUPERVISOR, RoleName.SECURITY_AGENT}
+    if user.role.name not in allowed:
+        return jsonify({"message": "Accès refusé"}), 403
+
+    zones = AuthorizedZone.query.all()
+    result = []
+    for z in zones:
+        result.append({
+            "id": z.id,
+            "name": z.name,
+            "center_lat": z.center_lat,
+            "center_lng": z.center_lng,
+            "radius_meters": z.radius_meters,
+            "polygon_points": z.polygon_points,
+            "department_id": z.department_id,
+        })
+    return jsonify(result), 200
+
+
+@admin_bp.route("/alerts/location", methods=["GET"])
+@jwt_required()
+def get_location_alerts():
+    """Retourne les alertes GPS non résolues (GPS_DISABLED, UNAUTHORIZED_EXIT)."""
+    user_id = get_jwt_identity()
+    user = User.query.get(user_id)
+    if not user or not user.role:
+        return jsonify({"message": "Accès refusé"}), 403
+
+    allowed = {RoleName.SUPER_ADMIN, "ADMIN_GENERAL", RoleName.DEPT_ADMIN, "ADMIN_DEPT"}
+    if user.role.name not in allowed:
+        return jsonify({"message": "Accès refusé"}), 403
+
+    query = SecurityAlert.query.filter(
+        SecurityAlert.type.in_(["GPS_DISABLED", "UNAUTHORIZED_EXIT"]),
+        SecurityAlert.is_resolved == False
+    )
+    if user.role.name in {RoleName.DEPT_ADMIN, "ADMIN_DEPT"}:
+        query = query.filter_by(department_id=user.department_id)
+
+    alerts = query.order_by(SecurityAlert.created_at.desc()).all()
+    result = []
+    for a in alerts:
+        # Find related device info
+        device_info = None
+        if "EQ-SIM" in (a.message or ""):
+            # Extract serial from message
+            for token in (a.message or "").split():
+                if token.startswith("EQ-SIM"):
+                    dev = Device.query.filter_by(serial_number=token).first()
+                    if dev:
+                        device_info = {"id": dev.id, "name": dev.name, "serial": dev.serial_number,
+                                       "lat": dev.last_known_lat, "lng": dev.last_known_lng}
+                    break
+        result.append({
+            "id": a.id,
+            "type": a.type,
+            "message": a.message,
+            "department": a.department.name if a.department else None,
+            "created_at": a.created_at.isoformat() if a.created_at else None,
+            "is_resolved": a.is_resolved,
+            "device": device_info,
+        })
+    return jsonify(result), 200
+
+
+@admin_bp.route("/alerts/<alert_id>/resolve", methods=["POST"])
+@jwt_required()
+@super_admin_required
+def resolve_location_alert(alert_id):
+    """Résout une alerte GPS (seul l'admin général peut résoudre)."""
+    from app.services.security_service import SecurityService
+
+    alert = SecurityAlert.query.get(alert_id)
+    if not alert:
+        return jsonify({"message": "Alerte introuvable"}), 404
+
+    alert.is_resolved = True
+    
+    # Resolve related incidents
+    incidents = SecurityIncident.query.filter_by(alert_id=alert.id, status="OPEN").all()
+    for inc in incidents:
+        inc.status = "RESOLVED"
+        inc.resolution_note = "Résolu par l'administrateur général"
+        inc.resolved_at = datetime.utcnow()
+
+    SecurityService.log_event(
+        get_jwt_identity(),
+        "ALERT_RESOLVED",
+        f"Alerte {alert.type} résolue: {alert.message}",
+        request.remote_addr,
+        request.headers.get("User-Agent", ""),
+        status="SUCCESS",
+    )
+
+    db.session.commit()
+    return jsonify({"message": "Alerte résolue", "id": alert.id}), 200
 @admin_bp.route("/dashboard/stats", methods=["GET"])
 @jwt_required()
 @super_admin_required

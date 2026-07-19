@@ -10,9 +10,12 @@ import {
     Navigation,
     ShieldAlert,
     Monitor,
-    MousePointerClick
+    MousePointerClick,
+    WifiOff,
+    MapPinOff,
+    CheckCircle
 } from 'lucide-react';
-import Map2D, { RouteOverlay } from '../components/Map2D';
+import Map2D, { RouteOverlay, GeofenceZone } from '../components/Map2D';
 import Map3D from '../components/Map3D';
 import {
     createManualPosition,
@@ -32,7 +35,7 @@ import {
     TrackedEquipment,
 } from '../services/locationService';
 import { authService } from '../services/authService';
-import { MAP_STATUS_COLORS, MAP_STATUS_LABELS } from '../services/trackingService';
+import { MAP_STATUS_COLORS, MAP_STATUS_LABELS, trackingService } from '../services/trackingService';
 import { lockMapViewport, resetMapViewportState } from '../services/mapViewport';
 import {
     fetchShortestRoute,
@@ -114,6 +117,9 @@ export const TrackingMap = () => {
     const [routeOverlay, setRouteOverlay] = useState<RouteOverlay | null>(null);
     const [routeLoading, setRouteLoading] = useState(false);
     const [routeTargetId, setRouteTargetId] = useState<string | null>(null);
+    const [geofenceZones, setGeofenceZones] = useState<GeofenceZone[]>([]);
+    const [locationAlerts, setLocationAlerts] = useState<any[]>([]);
+    const [resolvingAlertId, setResolvingAlertId] = useState<string | null>(null);
     const mapSectionRef = useRef<HTMLDivElement>(null);
     const isDesktop = isDesktopDevice();
     const locationProfile = getLocationProfile();
@@ -306,6 +312,16 @@ export const TrackingMap = () => {
         };
 
         bootstrap();
+
+        // Fetch geofencing zones
+        trackingService.getGeofencingZones()
+            .then((zones) => setGeofenceZones(zones))
+            .catch(() => console.warn('Zones de geofencing non disponibles'));
+
+        // Fetch location alerts
+        trackingService.getLocationAlerts()
+            .then((alerts) => setLocationAlerts(alerts))
+            .catch(() => console.warn('Alertes localisation non disponibles'));
 
         const stopWatch = startLocationWatch((position) => {
             if (position.accuracy) {
@@ -556,6 +572,7 @@ export const TrackingMap = () => {
                         <div className="h-full">
                             <Map2D
                                 equipments={equipments}
+                                zones={geofenceZones}
                                 manualPickEnabled={manualPickMode}
                                 onManualPosition={handleManualPosition}
                                 focusTarget={focusTarget}
@@ -737,6 +754,78 @@ export const TrackingMap = () => {
                     );
                 })}
             </div>
+
+            {/* Location Alerts Panel — visible only for admins */}
+            {locationAlerts.length > 0 && (
+                <div className="pro-card overflow-hidden border-red-500/20">
+                    <div className="p-6 border-b border-white/5 bg-red-500/[0.03]">
+                        <h3 className="text-[10px] font-black text-red-400 uppercase tracking-[0.2em] flex items-center gap-2">
+                            <ShieldAlert className="w-3.5 h-3.5" />
+                            Alertes Localisation ({locationAlerts.length})
+                        </h3>
+                        <p className="text-[9px] text-slate-500 mt-1 uppercase">
+                            Ces alertes ne peuvent être résolues que par l'Administrateur Général
+                        </p>
+                    </div>
+                    <div className="divide-y divide-white/5">
+                        {locationAlerts.map((alert) => (
+                            <div key={alert.id} className="p-5 flex items-center justify-between gap-4 hover:bg-white/[0.02] transition-colors">
+                                <div className="flex items-start gap-4 flex-1">
+                                    <div className={`p-2.5 rounded border shrink-0 ${
+                                        alert.type === 'GPS_DISABLED'
+                                            ? 'bg-orange-500/10 border-orange-500/20 text-orange-400'
+                                            : 'bg-red-500/10 border-red-500/20 text-red-400'
+                                    }`}>
+                                        {alert.type === 'GPS_DISABLED' ? <WifiOff className="w-4 h-4" /> : <MapPinOff className="w-4 h-4" />}
+                                    </div>
+                                    <div>
+                                        <p className="text-[10px] font-black text-white uppercase tracking-tight">
+                                            {alert.type === 'GPS_DISABLED' ? 'Localisation Désactivée' : 'Agent Hors Site'}
+                                        </p>
+                                        <p className="text-[9px] text-slate-400 mt-1">{alert.message}</p>
+                                        {alert.department && (
+                                            <span className="inline-block mt-1 px-1.5 py-0.5 rounded text-[7px] font-black uppercase bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                                                {alert.department}
+                                            </span>
+                                        )}
+                                        {alert.device && (
+                                            <p className="text-[8px] text-slate-500 mt-1 font-mono">
+                                                Appareil: {alert.device.name} (SN: {alert.device.serial})
+                                                {alert.device.lat != null ? ` — ${alert.device.lat.toFixed(6)}N / ${alert.device.lng.toFixed(6)}E` : ' — GPS absent'}
+                                            </p>
+                                        )}
+                                        <p className="text-[8px] text-slate-600 mt-1 font-mono">{alert.created_at}</p>
+                                    </div>
+                                </div>
+                                {normalizedViewerRole === 'SUPER_ADMIN' && (
+                                    <button
+                                        onClick={async () => {
+                                            setResolvingAlertId(alert.id);
+                                            try {
+                                                await trackingService.resolveLocationAlert(alert.id);
+                                                setLocationAlerts((prev) => prev.filter((a) => a.id !== alert.id));
+                                                // Refresh the map data to show newly resolved locations
+                                                await fetchEquipments(false);
+                                            } finally {
+                                                setResolvingAlertId(null);
+                                            }
+                                        }}
+                                        disabled={resolvingAlertId === alert.id}
+                                        className="shrink-0 flex items-center gap-2 px-4 py-2 rounded text-[10px] font-black uppercase tracking-widest bg-emerald-600 text-white hover:bg-emerald-500 disabled:opacity-50 transition-all"
+                                    >
+                                        {resolvingAlertId === alert.id ? (
+                                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                        ) : (
+                                            <CheckCircle className="w-3.5 h-3.5" />
+                                        )}
+                                        Résoudre
+                                    </button>
+                                )}
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

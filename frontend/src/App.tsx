@@ -32,7 +32,6 @@ function App() {
             setUser((prev) => prev ?? authService.getCurrentUser());
             syncPushSubscriptionIfEnabled().catch(() => undefined);
         } else {
-            authService.logout();
             setUser(null);
         }
         setLoading(false);
@@ -43,8 +42,8 @@ function App() {
         registerPushNotifications().catch(() => undefined);
     };
 
-    const handleLogout = () => {
-        authService.logout();
+    const handleLogout = async () => {
+        await authService.logout();
         setUser(null);
     };
 

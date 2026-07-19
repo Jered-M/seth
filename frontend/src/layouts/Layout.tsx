@@ -53,7 +53,7 @@ export const Layout = ({ user, onLogout }: LayoutProps) => {
             {/* Mobile Overlay */}
             {isSidebarOpen && (
                 <div 
-                    className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 lg:hidden"
+                    className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm lg:hidden"
                     onClick={() => setIsSidebarOpen(false)}
                 />
             )}
@@ -67,11 +67,11 @@ export const Layout = ({ user, onLogout }: LayoutProps) => {
             `}>
                 <div className="p-6 border-b border-white/5 bg-[#0d1224] flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center shadow-lg shadow-blue-900/40">
-                            <Monitor className="text-white w-6 h-6" />
+                        <div className="flex items-center justify-center w-10 h-10 bg-blue-600 rounded-lg shadow-lg shadow-blue-900/40">
+                            <Monitor className="w-6 h-6 text-white" />
                         </div>
                         <div>
-                            <h1 className="text-lg font-bold tracking-tight text-white leading-none">SENTINEL</h1>
+                            <h1 className="text-lg font-bold leading-none tracking-tight text-white">SENTINEL</h1>
                             <p className="text-[10px] text-blue-400 font-black tracking-widest mt-1 uppercase">SECURITY OS</p>
                         </div>
                     </div>
@@ -104,7 +104,7 @@ export const Layout = ({ user, onLogout }: LayoutProps) => {
                 <div className="p-4 bg-[#060b18] border-t border-white/5">
                     <button
                         onClick={onLogout}
-                        className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-slate-500 hover:bg-red-500/10 hover:text-red-400 transition-all text-sm font-medium border-l-2 border-transparent"
+                        className="flex items-center w-full gap-3 px-4 py-3 text-sm font-medium transition-all border-l-2 border-transparent rounded-lg text-slate-500 hover:bg-red-500/10 hover:text-red-400"
                     >
                         <LogOut className="w-4 h-4" />
                         DÉCONNEXION
@@ -113,21 +113,21 @@ export const Layout = ({ user, onLogout }: LayoutProps) => {
             </aside>
 
             {/* Main Content Area */}
-            <main className="flex-1 flex flex-col min-h-screen relative w-full">
-                <div className="absolute inset-0 tactical-grid opacity-20 pointer-events-none"></div>
+            <main className="relative flex flex-col flex-1 w-full min-h-screen">
+                <div className="absolute inset-0 pointer-events-none tactical-grid opacity-20"></div>
 
                 {/* Header */}
                 <header className="h-16 bg-[#0a0f1d]/80 backdrop-blur-md border-b border-white/5 flex items-center justify-between px-4 lg:px-8 sticky top-0 z-20 shadow-sm">
                     <div className="flex items-center gap-4">
                         <button 
                             onClick={toggleSidebar}
-                            className="p-2 lg:hidden text-slate-400 hover:text-white bg-white/5 rounded-lg"
+                            className="p-2 rounded-lg lg:hidden text-slate-400 hover:text-white bg-white/5"
                         >
                             <Menu className="w-6 h-6" />
                         </button>
 
-                        <div className="hidden md:flex relative group overflow-hidden">
-                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+                        <div className="relative hidden overflow-hidden md:flex group">
+                            <Search className="absolute w-4 h-4 -translate-y-1/2 left-3 top-1/2 text-slate-500" />
                             <input
                                 type="text"
                                 placeholder="RECHERCHE GLOBALE..."
@@ -142,13 +142,13 @@ export const Layout = ({ user, onLogout }: LayoutProps) => {
                         <div className="hidden sm:block h-4 w-[1px] bg-white/10"></div>
                         
                         <div className="flex items-center gap-2 lg:gap-4">
-                            <div className="hidden sm:block text-right">
-                                <p className="text-sm font-bold text-white tracking-tight">{user.name}</p>
+                            <div className="hidden text-right sm:block">
+                                <p className="text-sm font-bold tracking-tight text-white">{user.name}</p>
                                 <p className="text-[10px] text-blue-400 font-bold uppercase tracking-tighter">
                                     {normalizedRole.replace('_', ' ')}
                                 </p>
                             </div>
-                            <div className="w-8 h-8 lg:w-9 lg:h-9 bg-blue-600 rounded flex items-center justify-center text-white font-black text-xs lg:text-sm shadow-lg shadow-blue-900/20">
+                            <div className="flex items-center justify-center w-8 h-8 text-xs font-black text-white bg-blue-600 rounded shadow-lg lg:w-9 lg:h-9 lg:text-sm shadow-blue-900/20">
                                 {user.name.charAt(0)}
                             </div>
                         </div>
@@ -156,7 +156,7 @@ export const Layout = ({ user, onLogout }: LayoutProps) => {
                 </header>
 
                 {/* Page Content */}
-                <div className="flex-1 p-4 lg:p-8 relative z-10 overflow-x-hidden">
+                <div className="relative z-10 flex-1 p-4 overflow-x-hidden lg:p-8">
                     <Outlet />
                 </div>
             </main>

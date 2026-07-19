@@ -7,9 +7,10 @@
 Ne pas lancer ce fichier directement (ModuleNotFoundError: app).
 Utiliser : python seed.py   (depuis le dossier backend/)
 """
-from app.models.security_models import Role, RoleName, User, Department
+from app.models.security_models import Role, RoleName, User, Department, AuthorizedZone, SecurityAlert, SecurityIncident, Device
 from app.services.security_service import SecurityService
 from app.database import db
+import json
 
 SEED_ACCOUNT_EMAILS = (
     "superadmin@seth.com",
@@ -275,6 +276,125 @@ def seed_data():
 
     db.session.commit()
     print(f"✅ {created_count} test GPS devices seeded across departments!")
+
+    print("\n🌍 Seeding Geofencing zones & Simulations...")
+    # 1. Périmètre du Bâtiment (Global - Pas de département assigné)
+    building_zone = AuthorizedZone.query.filter_by(name="Périmètre du Bâtiment").first()
+    if not building_zone:
+        building_zone = AuthorizedZone(
+            name="Périmètre du Bâtiment",
+            center_lat=-11.676486,
+            center_lng=27.48082, # Admin general base location
+            radius_meters=500.0,
+            department_id=None,
+            polygon_points=json.dumps([[-11.672, 27.475], [-11.672, 27.485], [-11.680, 27.485], [-11.680, 27.475]])
+        )
+        db.session.add(building_zone)
+
+    # 2. Périmètre du Département (Informatique)
+    dept_zone = AuthorizedZone.query.filter_by(name="Délimitation Département IT").first()
+    it_dept = dept_map.get("Informatique")
+    if not dept_zone and it_dept:
+        dept_zone = AuthorizedZone(
+            name="Délimitation Département IT",
+            center_lat=-11.676000, 
+            center_lng=27.48000, # Admin de departement base location (start point)
+            radius_meters=150.0,
+            department_id=it_dept.id,
+            polygon_points=json.dumps([[-11.675, 27.479], [-11.675, 27.481], [-11.677, 27.481], [-11.677, 27.479]])
+        )
+        db.session.add(dept_zone)
+    db.session.commit()
+    
+    # 3. Simulations des 3 cas
+    # 3.1: Agent dans le périmètre du département, mais pas au bureau (aux alentours)
+    sim1_serial = "EQ-SIM1-DEPT-AROUND"
+    sim1 = Device.query.filter_by(serial_number=sim1_serial).first()
+    if not sim1 and it_dept:
+        sim1 = Device(
+            id=str(uuid.uuid4()),
+            name="Agent Alentours Dept",
+            serial_number=sim1_serial,
+            department_id=it_dept.id,
+            status="ASSIGNED",
+            last_known_lat=-11.676200, # Dans le cercle du dept, mais légèrement décalé
+            last_known_lng=27.480500,
+            last_known_accuracy=15.0
+        )
+        db.session.add(sim1)
+    
+    # 3.2: Agent qui a désactivé sa localisation (Alerte direct à l'admin général)
+    sim2_serial = "EQ-SIM2-GPS-OFF"
+    sim2 = Device.query.filter_by(serial_number=sim2_serial).first()
+    if not sim2 and it_dept:
+        sim2 = Device(
+            id=str(uuid.uuid4()),
+            name="Agent GPS Désactivé",
+            serial_number=sim2_serial,
+            department_id=it_dept.id,
+            status="ASSIGNED",
+            last_known_lat=-11.676800,  # Dernière position connue avant désactivation
+            last_known_lng=27.480200,
+            last_known_accuracy=12.0,
+        )
+        db.session.add(sim2)
+        db.session.flush()
+        # Create alert for GPS Disabled that must be resolved by Admin General
+        alert2 = SecurityAlert.query.filter_by(message=f"Localisation désactivée par {sim2_serial}").first()
+        if not alert2:
+            alert2 = SecurityAlert(
+                user_id=super_admin_user.id if super_admin_user else None,
+                department_id=it_dept.id,
+                type="GPS_DISABLED",
+                message=f"Localisation désactivée par {sim2_serial}",
+                is_resolved=False
+            )
+            db.session.add(alert2)
+            db.session.flush()
+            incident = SecurityIncident(
+                alert_id=alert2.id,
+                department_id=it_dept.id,
+                status="OPEN"
+            )
+            db.session.add(incident)
+
+    # 3.3: Agent hors site
+    sim3_serial = "EQ-SIM3-OFFSITE"
+    sim3 = Device.query.filter_by(serial_number=sim3_serial).first()
+    if not sim3 and it_dept:
+        sim3 = Device(
+            id=str(uuid.uuid4()),
+            name="Agent Hors Site",
+            serial_number=sim3_serial,
+            department_id=it_dept.id,
+            status="OUT_OF_ZONES",
+            last_known_lat=-11.685000, # En dehors de la zone de 500m
+            last_known_lng=27.490000,
+            last_known_accuracy=10.0
+        )
+        db.session.add(sim3)
+        db.session.flush()
+        # Create alert for Unauthorized Exit
+        alert3 = SecurityAlert.query.filter_by(message=f"L'équipement {sim3.id} a quitté la zone autorisée sans permission.").first()
+        if not alert3:
+            alert3 = SecurityAlert(
+                user_id=super_admin_user.id if super_admin_user else None,
+                department_id=it_dept.id,
+                type="UNAUTHORIZED_EXIT",
+                message=f"L'équipement {sim3.id} a quitté la zone autorisée sans permission.",
+                is_resolved=False
+            )
+            db.session.add(alert3)
+            db.session.flush()
+            incident = SecurityIncident(
+                alert_id=alert3.id,
+                department_id=it_dept.id,
+                status="OPEN"
+            )
+            db.session.add(incident)
+
+    db.session.commit()
+    print("✅ Geofencing and Simulations seeded!")
 
     ensure_seed_accounts_unlocked()
     sync_seed_accounts_for_dev()

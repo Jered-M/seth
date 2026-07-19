@@ -115,7 +115,8 @@ def _complete_successful_login(user: User, ip: str, user_agent: str | None, loca
     )
 
     _sync_user_devices_location(user.id, location)
-    SessionService.open_session(user, ip, user_agent, location, None, in_zone=in_zone)
+    device_hash = SecurityService.get_device_hash(ip, user_agent)
+    SessionService.open_session(user, ip, user_agent, location, device_hash, in_zone=in_zone)
 
     lat_val = location.get("lat") if isinstance(location, dict) else None
     lng_val = location.get("lng") if isinstance(location, dict) else None
@@ -198,6 +199,30 @@ def login():
         SecurityService.log_event(user.id, "LOGIN", "Bloqué par score de risque", ip, user_agent, status="BLOCKED", risk_score=risk["score"])
         return jsonify({"message": "Accès bloqué pour raisons de sécurité"}), 403
 
+    # Vérification de connexion simultanée sur plusieurs appareils
+    from app.models.security_models import UserSession
+    device_hash = SecurityService.get_device_hash(ip, user_agent)
+    active_sessions = UserSession.query.filter_by(user_id=user.id, is_active=True).all()
+    for session in active_sessions:
+        if session.machine_fingerprint and session.machine_fingerprint != device_hash:
+            log.warning("LOGIN multiple appareils email=%s ip=%s", email, ip)
+            SecurityService.create_alert(
+                user.id,
+                "MULTIPLE_DEVICES",
+                f"L'agent {user.username} tente de se connecter sur deux appareils différents."
+            )
+            SecurityService.log_event(
+                user.id,
+                "LOGIN_BLOCKED",
+                "Tentative de connexion sur un deuxième appareil",
+                ip,
+                user_agent or "",
+                status="ALERT",
+                risk_score=75,
+                department_id=user.department_id,
+            )
+            return jsonify({"message": "Vous êtes déjà connecté sur un autre appareil. Veuillez vous déconnecter d'abord."}), 403
+
     if risk["recommendation"] == "REQUIRE_MFA" or user.mfa_enabled:
         log.info("LOGIN MFA requis email=%s score=%s", email, risk["score"])
         return jsonify({
@@ -262,8 +287,17 @@ def verify_mfa():
         
     totp = pyotp.TOTP(user.mfa_secret)
     if totp.verify(otp_token):
-        # Enregistrer l'appareil si inconnu
         device_hash = SecurityService.get_device_hash(ip, user_agent)
+        
+        # Vérification de connexion simultanée sur plusieurs appareils
+        from app.models.security_models import UserSession
+        active_sessions = UserSession.query.filter_by(user_id=user.id, is_active=True).all()
+        for session in active_sessions:
+            if session.machine_fingerprint and session.machine_fingerprint != device_hash:
+                SecurityService.create_alert(user.id, "MULTIPLE_DEVICES", f"L'agent {user.username} tente de se connecter sur deux appareils différents.")
+                return jsonify({"message": "Vous êtes déjà connecté sur un autre appareil. Veuillez vous déconnecter d'abord."}), 403
+
+        # Enregistrer l'appareil si inconnu
         known_device = UserDevice.query.filter_by(user_id=user.id, device_id_hash=device_hash).first()
         if not known_device:
             new_device = UserDevice(
@@ -299,3 +333,26 @@ def verify_mfa():
     
     SecurityService.log_event(user.id, "MFA_VERIFY", "MFA échouée", ip, user_agent, status="FAILED")
     return jsonify({"message": "Code invalide"}), 401
+
+
+from flask_jwt_extended import jwt_required, get_jwt_identity
+
+@auth_bp.route("/logout", methods=["POST"])
+@jwt_required()
+def logout():
+    user_id = get_jwt_identity()
+    user_agent = request.headers.get("User-Agent")
+    ip = request.remote_addr
+    device_hash = SecurityService.get_device_hash(ip, user_agent)
+    
+    from app.models.security_models import UserSession
+    active_sessions = UserSession.query.filter_by(user_id=user_id, is_active=True).all()
+    for session in active_sessions:
+        if session.machine_fingerprint == device_hash:
+            session.is_active = False
+            session.logout_at = datetime.utcnow()
+            
+    SecurityService.log_event(user_id, "LOGOUT", "Déconnexion réussie", ip, user_agent)
+    db.session.commit()
+    return jsonify({"message": "Déconnexion réussie"}), 200
+

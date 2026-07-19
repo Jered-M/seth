@@ -185,7 +185,23 @@ def build_live_positions(requester: User) -> dict:
             continue
 
         lat, lng, accuracy = _login_location(last_login)
-        zone = SecurityService.check_point_in_zone(lat, lng, user.department_id) if lat and lng else {"in_zone": True, "zone_name": None}
+        has_real_location = lat is not None and lng is not None
+        zone = SecurityService.check_point_in_zone(lat, lng, user.department_id) if has_real_location else {"in_zone": True, "zone_name": None}
+
+        if not has_real_location:
+            from app.models.security_models import AuthorizedZone
+            fallback_zone = None
+            if user.department_id:
+                fallback_zone = AuthorizedZone.query.filter_by(department_id=user.department_id).first()
+            if not fallback_zone:
+                fallback_zone = AuthorizedZone.query.filter_by(department_id=None).first()
+            
+            if fallback_zone and fallback_zone.center_lat and fallback_zone.center_lng:
+                lat = fallback_zone.center_lat
+                lng = fallback_zone.center_lng
+                accuracy = fallback_zone.radius_meters or 50.0
+                zone["in_zone"] = True
+                zone["zone_name"] = fallback_zone.name
         exit_req = _active_exit_request(None, user.id)
         items.append({
             "id": user.id,
@@ -205,11 +221,65 @@ def build_live_positions(requester: User) -> dict:
             "exit_request_id": exit_req.id if exit_req else None,
             "status": "ONLINE",
             "department": user.department.name if user.department else None,
-            "location_source": "login" if lat is not None else "unavailable",
+            "location_source": "login" if has_real_location else "zone_center",
             "kind": "user",
             "has_location": lat is not None and lng is not None,
             "last_login": last_login.created_at.isoformat(),
             "location_updated_at": None,
+        })
+
+    # Include simulation devices (not assigned to any logged-in user)
+    sim_serials = ["EQ-SIM1-DEPT-AROUND", "EQ-SIM2-GPS-OFF", "EQ-SIM3-OFFSITE"]
+    existing_device_ids = {item["id"] for item in items}
+    for serial in sim_serials:
+        device = Device.query.filter_by(serial_number=serial).first()
+        if not device or device.id in existing_device_ids:
+            continue
+        has_loc = device.last_known_lat is not None and device.last_known_lng is not None
+        zone = (
+            SecurityService.check_point_in_zone(
+                device.last_known_lat, device.last_known_lng, device.department_id
+            )
+            if has_loc
+            else {"in_zone": True, "zone_name": None, "reason": "no_gps"}
+        )
+
+        if serial == "EQ-SIM2-GPS-OFF":
+            map_status = "GPS_DISABLED"
+            zone_status = "UNKNOWN"
+        elif serial == "EQ-SIM3-OFFSITE":
+            map_status = "OUT_OF_ZONE"
+            zone_status = "OUT_OF_ZONE"
+        else:
+            in_zone = zone["in_zone"]
+            map_status = "ON_SITE" if in_zone else "OUT_OF_ZONE"
+            zone_status = "IN_ZONE" if in_zone else "OUT_OF_ZONE"
+
+        items.append({
+            "id": device.id,
+            "name": device.name,
+            "serial_number": device.serial_number,
+            "assignedTo": "Simulation",
+            "email": None,
+            "role": None,
+            "lat": device.last_known_lat,
+            "lng": device.last_known_lng,
+            "accuracy": device.last_known_accuracy,
+            "device_status": device.status,
+            "map_status": map_status,
+            "zone_status": zone_status,
+            "zone_name": zone.get("zone_name"),
+            "exit_request_status": None,
+            "exit_request_id": None,
+            "status": "SIMULATION",
+            "department": device.department.name if device.department else None,
+            "location_source": "simulation",
+            "kind": "device",
+            "has_location": has_loc,
+            "last_login": None,
+            "location_updated_at": (
+                device.location_updated_at.isoformat() if device.location_updated_at else None
+            ),
         })
 
     located_count = sum(1 for item in items if item.get("has_location"))

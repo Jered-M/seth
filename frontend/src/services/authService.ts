@@ -91,9 +91,17 @@ export const authService = {
         return response.data;
     },
 
-    logout() {
-        localStorage.removeItem('access_token');
-        localStorage.removeItem('user');
+    async logout() {
+        try {
+            if (this.isAuthenticated()) {
+                await api.post('/auth/logout');
+            }
+        } catch (error) {
+            console.error('[SetH AUTH] Erreur lors de la déconnexion backend:', error);
+        } finally {
+            localStorage.removeItem('access_token');
+            localStorage.removeItem('user');
+        }
     },
 
     getCurrentUser(): User | null {

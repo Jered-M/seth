@@ -28,8 +28,8 @@ export const useAuth = () => {
         }
     };
 
-    const logout = () => {
-        authService.logout();
+    const logout = async () => {
+        await authService.logout();
     };
 
     const getCurrentUser = (): User | null => {

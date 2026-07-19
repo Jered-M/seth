@@ -9,6 +9,7 @@ import {
     Polyline,
     useMap,
     useMapEvents,
+    Polygon,
 } from 'react-leaflet';
 import L from 'leaflet';
 import {
@@ -67,8 +68,19 @@ export interface EquipmentPosition {
     exitRequestStatus?: string;
 }
 
+export interface GeofenceZone {
+    id: string;
+    name: string;
+    center_lat: number | null;
+    center_lng: number | null;
+    radius_meters: number | null;
+    polygon_points: string | null;
+    department_id: string | null;
+}
+
 interface Map2DProps {
     equipments: EquipmentPosition[];
+    zones?: GeofenceZone[];
     manualPickEnabled?: boolean;
     onManualPosition?: (lat: number, lng: number) => void;
     focusTarget?: { id: string; lat: number; lng: number; tick: number } | null;
@@ -323,8 +335,56 @@ const MapInitialFit: React.FC<{ equipments: EquipmentPosition[] }> = ({ equipmen
     return null;
 };
 
+const MapGeofences: React.FC<{ zones?: GeofenceZone[] }> = ({ zones }) => {
+    if (!zones) return null;
+    return (
+        <>
+            {zones.map((zone) => {
+                const isGlobal = !zone.department_id;
+                const color = isGlobal ? '#3b82f6' : '#22c55e'; // Blue for global, Green for dept
+                const label = isGlobal ? 'Bâtiment' : 'Département';
+                
+                let polygonCoords: [number, number][] = [];
+                if (zone.polygon_points) {
+                    try {
+                        const parsed = JSON.parse(zone.polygon_points);
+                        if (Array.isArray(parsed) && parsed.length > 0) {
+                            polygonCoords = parsed as [number, number][];
+                        }
+                    } catch (e) {
+                        console.error('Error parsing polygon', e);
+                    }
+                }
+
+                return (
+                    <React.Fragment key={zone.id}>
+                        {polygonCoords.length > 0 && (
+                            <Polygon 
+                                positions={polygonCoords}
+                                pathOptions={{ color, fillColor: color, fillOpacity: 0.1, weight: 2 }}
+                            >
+                                <Popup>Zone: {zone.name} ({label})</Popup>
+                            </Polygon>
+                        )}
+                        {(!polygonCoords.length || zone.radius_meters) && zone.center_lat && zone.center_lng && zone.radius_meters ? (
+                            <Circle 
+                                center={[zone.center_lat, zone.center_lng]}
+                                radius={zone.radius_meters}
+                                pathOptions={{ color, fillColor: color, fillOpacity: 0.1, weight: 2, dashArray: '5, 5' }}
+                            >
+                                <Popup>Zone Circulaire: {zone.name} ({label})</Popup>
+                            </Circle>
+                        ) : null}
+                    </React.Fragment>
+                );
+            })}
+        </>
+    );
+};
+
 const Map2D: React.FC<Map2DProps> = ({
     equipments,
+    zones,
     manualPickEnabled,
     onManualPosition,
     focusTarget,
@@ -374,6 +434,7 @@ const Map2D: React.FC<Map2DProps> = ({
                         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
                         maxZoom={19}
                     />
+                    <MapGeofences zones={zones} />
                     <MapInitialFit equipments={equipments} />
                     <MapFocusController focusTarget={focusTarget} />
                     <MapClickPicker enabled={manualPickEnabled} onPick={onManualPosition} />
